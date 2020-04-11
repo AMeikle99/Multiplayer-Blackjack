@@ -2,6 +2,7 @@ package com.amarasapps;
 
 
 import java.util.ArrayList;
+import java.util.Collections;
 
 /**
  * An object to represent a playing deck, essentially an array of Cards
@@ -44,6 +45,13 @@ public class Deck {
      */
     public int size(){
         return this.deck.size();
+    }
+
+    /**
+     * Shuffles the order of cards in the Deck
+     */
+    protected void shuffleDeck(){
+        Collections.shuffle(this.deck);
     }
 
 

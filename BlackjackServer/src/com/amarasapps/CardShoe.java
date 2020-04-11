@@ -2,6 +2,7 @@ package com.amarasapps;
 
 
 import java.util.ArrayList;
+import java.util.Collections;
 
 /**
  * The object which represents the card shoe, holds 1 or more decks used in gameplay
@@ -27,8 +28,11 @@ public class CardShoe {
     public CardShoe(int deckCount){
         this();
         for(int i = 0; i<deckCount; i++){
-            addDeck(new Deck());
+            Deck newDeck = new Deck();
+            newDeck.shuffleDeck();
+            addDeck(newDeck);
         }
+        for(int i = 0; i < 3; i++) this.shuffleCardShoe();
     }
 
     /**
@@ -36,7 +40,7 @@ public class CardShoe {
      *
      * @param deck Deck Object storing an Array of Cards
      */
-    public void addDeck(Deck deck){
+    private void addDeck(Deck deck){
         while(deck.size() > 0){
             this.cardShoe.add(deck.dealCard());
         }
@@ -63,6 +67,12 @@ public class CardShoe {
         return this.cardShoe.size();
     }
 
+    /**
+     * Shuffles the order of all cards in the CardShoe
+     */
+    private void shuffleCardShoe(){
+        Collections.shuffle(this.cardShoe);
+    }
 
 
 

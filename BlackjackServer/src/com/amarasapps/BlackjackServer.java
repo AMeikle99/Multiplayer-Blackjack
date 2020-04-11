@@ -7,12 +7,11 @@ package com.amarasapps;
   Github: AMeikle99
  */
 
-
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Scanner;
+
 
 /**
  * This is the executable class, it will create a new Table Object Thread
@@ -29,6 +28,7 @@ public class BlackjackServer {
     private static final int MINIMUM_BET = 100;         //Minimum Allowed Bet
     private static final int DECKS_USED = 8;            //Decks Kept in the Shoe
     private static final int CARDS_BEFORE_SHUFFLE = 80; //Cards remaining in the deck before a re-shuffle
+    private static final int STARTING_MONEY = 500;      //Money that Each Player Would STart With
 
     public static void main(String[] args) {
 
@@ -41,6 +41,7 @@ public class BlackjackServer {
             System.out.println(String.format("Server Running:\n\tPort: %d\n\tIP Address: %s", SERVER_PORT, SERVER_ADDRESS));
 
             int connectedClients = 0;   //Number of Currently connected players
+            Table playingTable = new Table(MINIMUM_BET, DECKS_USED, CARDS_BEFORE_SHUFFLE);
 
             do{
                 Socket playerSocket = serverSocket.accept();    //Connect new client
@@ -49,12 +50,15 @@ public class BlackjackServer {
                 int clientPort = playerSocket.getPort();    //Extract Server Port and IP Address
                 String clientAddress = playerSocket.getInetAddress().getHostAddress();
 
+                Player player = new Player(playerSocket, playingTable, STARTING_MONEY);
+                playingTable.addPlayer(player);
+                new Thread(player).start();
                 System.out.println(String.format("Client %d Connected:\n\tPort: %s\n\tIP Address: %s", connectedClients, clientPort, clientAddress));
 
             }while(connectedClients < PLAYERS_PER_TABLE);
 
             System.out.println("All Clients Connected");
-
+            playingTable.run();
         }catch (IOException e){
             e.printStackTrace();
             System.exit(-1);
