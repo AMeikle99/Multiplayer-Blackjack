@@ -64,6 +64,7 @@ public class Player implements Runnable {
         System.out.println("Running New Player");
         do{
             try {
+
                 if(gameState != GameState.WAITINGOTHERS && gameState != GameState.NOTSTARTED){
                     String clientMessage = input.readLine();
                     handleClientMessage(clientMessage);
@@ -79,18 +80,21 @@ public class Player implements Runnable {
     }
 
     private void handleClientMessage(String message){
-        String[] mesageBits = message.split("-");
-        if (mesageBits.length < 2){
+        String[] messageBits = message.split("-");
+        if (messageBits.length < 2){
             return;
         }
-        switch (mesageBits[1]){
+        switch (messageBits[1]){
             case "BET":
-                System.out.println("Bet: " + mesageBits[2]);
+                System.out.println("Bet: " + messageBits[2]);
+                double placedBet = Double.parseDouble(messageBits[2]);
+                setPlacedBet(placedBet);
+                decrementBalance(placedBet);
                 setWaitingState();
                 gameTable.countDownBetLatch();
                 break;
             case "PLAYING":
-                System.out.println("Play: " + mesageBits[2]);
+                System.out.println("Play: " + messageBits[2]);
                 setWaitingState();
                 playHandLatch.countDown();
                 break;
@@ -105,7 +109,8 @@ public class Player implements Runnable {
     public void setGetBetState(){
         System.out.println("Set Bet State");
         this.gameState = GameState.WAITINGBET;
-        output.println("S-ADVANCE-BETTINGSTAGE");
+
+        output.println(String.format("S-ADVANCE-BETTINGSTAGE-%.2f-%.2f", gameTable.getMinimumBet(), getBalance()));
     }
 
     /**
@@ -145,12 +150,48 @@ public class Player implements Runnable {
 
     }
 
+    /**
+     * Resets the State of the Player, Resetting all Latches and Game State
+     */
     public void resetPlayer(){
         gameState = GameState.WAITINGOTHERS;
         playHandLatch = new CountDownLatch(1);
     }
 
-    public CountDownLatch getPlayHandLatch() {
-        return playHandLatch;
+    /**
+     * Forces the Table to Wait until the Playing State is Finished
+     */
+    public void waitPlayHandLatch() throws InterruptedException {
+        playHandLatch.await();
+    }
+
+
+    public void setPlacedBet(double placedBet) {
+        this.placedBet = placedBet;
+    }
+
+    /**
+     * Increments the value of the player's balance
+     * @param changeAmount The amount to increment the balance by.
+     */
+    public void incrementBalance(double changeAmount){
+        if(changeAmount < 0){
+            return;
+        }
+        this.balance += changeAmount;
+    }
+
+    public void decrementBalance(double changeAmount){
+        if(changeAmount < 0){
+            return;
+        }
+
+        this.balance -= changeAmount;
+    }
+
+    public double getBalance() {
+        return balance;
     }
 }
+
+

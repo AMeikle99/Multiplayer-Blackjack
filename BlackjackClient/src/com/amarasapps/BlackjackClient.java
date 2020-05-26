@@ -31,8 +31,11 @@ public class BlackjackClient {
     private GameState gameState;
     private Scanner terminalIn;
     private boolean inputEntered;
-    private final Thread gameProgress = new Thread(new HandleGameProgress());
     private  final Thread inputThread = new Thread(new InputThread());
+
+    double availBalance;
+    double tableMinBet;
+
     /**
      * Main Method which creates a new Client object and begins the connection/initialization process
      */
@@ -42,12 +45,20 @@ public class BlackjackClient {
     }
 
 
+    /**
+     * Constructor to Initialise the Blackjack Client
+     * @param port      Port of the Server
+     * @param address   Address of the Server
+     */
     public BlackjackClient(int port, String address){
         this.serverPort = port;
         this.serverAddress = address;
         this.terminalIn = new Scanner(System.in);
     }
 
+    /**
+     * Begin the Blackjack Game, Connect to Server and Manage Flow
+     */
     public void beginGame(){
         try{
             System.out.println("Connecting to Server...");
@@ -60,13 +71,13 @@ public class BlackjackClient {
             System.out.println("Successfully Connected to Server!");
             gameState = GameState.NOTSTARTED;
             inputThread.start();
-            gameProgress.start();
+            System.out.println("+--------------------+\n");
+            System.out.println("Game Not Started Yet. Waiting for Others to Join");
 
             inputEntered = true;
             do{
                 try{
                     String message = input.readLine();
-                    System.out.println(message);
                     handleServerMessage(message);
                 }catch(SocketTimeoutException ignored){}
 
@@ -74,7 +85,6 @@ public class BlackjackClient {
             }while(gameState != GameState.GAMEOVER);
 
             try{
-                gameProgress.join();
                 inputThread.join();
             }catch (InterruptedException ignored){}
             clientSocket.close();
@@ -89,18 +99,23 @@ public class BlackjackClient {
 
     }
 
+    /**
+     * Deals with Messages Received from Server
+     * @param message   The Message from the Server
+     */
     private void handleServerMessage(String message){
-        synchronized (gameProgress){
-            System.out.println(message);
-            String[] mesageBits = message.split("-");
-            if (mesageBits.length < 2){
+        synchronized (this){
+            String[] messageBits = message.split("-");
+            if (messageBits.length < 2){
                 return;
             }
-            switch (mesageBits[1]){
+            switch (messageBits[1]){
                 case "ADVANCE":
-                    switch (mesageBits[2]){
+                    switch (messageBits[2]){
                         case "BETTINGSTAGE":
-                            setGetBetState();
+                            tableMinBet = Double.parseDouble(messageBits[3]);
+                            availBalance = Double.parseDouble(messageBits[4]);
+                            handleBetStage();
                             break;
                         case "PLAYINGSTAGE":
                             setPlayGameState();
@@ -111,15 +126,14 @@ public class BlackjackClient {
                             break;
                     }
                     break;
+                case "PLAYERBALANCE":
+                    System.out.println(String.format("Balance Available: %.2f", Double.parseDouble(messageBits[3])));
                 case "GAMEOVER":
                     setGameOverState();
                     break;
             }
         }
 
-        synchronized (gameProgress){
-            gameProgress.notify();
-        }
         if(gameState != GameState.WAITINGOTHERS){
             synchronized (inputThread){
                 inputThread.notify();
@@ -129,11 +143,28 @@ public class BlackjackClient {
 
     }
 
+    /**
+     * Handles Messages to be sent to the Server
+     * @param message   Message to Be Sent to Server
+     */
     private void handleMessage(String message){
-        System.out.println(message);
         switch (gameState){
             case WAITINGBET:
-                output.println(String.format("C-BET-%s", message));
+                double chosenBet = Double.parseDouble(message);
+                if(chosenBet >= tableMinBet && chosenBet <= availBalance){
+                    output.println(String.format("C-BET-%s", message));
+                    inputThreadSleep();
+                }else{
+                    System.out.println("\n+--------------------+\n");
+                    if(chosenBet < tableMinBet){
+                        System.out.println("The bet entered is less than the Minimum Bet!");
+                    }else if(chosenBet > availBalance){
+                        System.out.println("The bet entered is greater than your Available Balance:");
+                    }
+                    System.out.println(String.format("Available Balance: %.2f", availBalance));
+                    System.out.print(String.format("Enter Bet (Min: %.2f): ", tableMinBet));
+                }
+
                 break;
             case PLAYING:
                 output.println(String.format("C-PLAYING-%s", message));
@@ -143,21 +174,27 @@ public class BlackjackClient {
             case NOTSTARTED:
                 break;
         }
+
     }
 
     /**
      * Sets the Game State for the Player to Collect its Bet
      */
-    private void setGetBetState(){
-        System.out.println("Setting Bet State");
+    private void handleBetStage(){
         this.gameState = GameState.WAITINGBET;
         inputEntered = true;
+        System.out.println("+-------------------+\n");
+        System.out.println("It is your Turn to place a Bet");
+        System.out.println(String.format("Available Balance: %.2f", availBalance));
+        System.out.print(String.format("Enter Your Bet (Min: %.2f): ", tableMinBet));
     }
 
     /**
      * Sets the Game State for the Player to Place Cards
      */
     private void setPlayGameState(){
+        System.out.println("+--------------------+\n");
+        System.out.println("Time to Play Your Hand");
         this.gameState = GameState.PLAYING;
         inputEntered = true;
     }
@@ -166,6 +203,8 @@ public class BlackjackClient {
      * Sets the Game State for the Player to Wait for Others
      */
     private void setWaitingState() {
+        System.out.println("+--------------------+\n");
+        System.out.println("Currently Waiting for Other Players.");
         this.gameState = GameState.WAITINGOTHERS;
         inputEntered = true;
     }
@@ -174,66 +213,40 @@ public class BlackjackClient {
      * Sets the Game State for the Player to Wait for Next Game
      */
     private void setNotStartedState(){
+        System.out.println("Currently Waiting for Other Players before Moving onto Next Round.");
         this.gameState = GameState.NOTSTARTED;
         inputEntered = true;
     }
 
+    /**
+     * Sets the Game State to Game Over
+     */
     private void setGameOverState(){
         this.gameState = GameState.GAMEOVER;
     }
 
-    private class HandleGameProgress implements Runnable {
-
-        @Override
-        public void run() {
-            while(gameState != GameState.GAMEOVER){
-                System.out.println("Game Progress");
-                synchronized (gameProgress){
-                    switch (gameState){
-                        case NOTSTARTED:
-                            System.out.println("Game Not Started Yet. Waiting for Others to Join");
-                            break;
-                        case WAITINGBET:
-                            System.out.println("It is your Turn to place a Bet");
-                            System.out.print("Enter Bet: ");
-                            break;
-                        case PLAYING:
-                            System.out.println("Time to Play Your Hand");
-                            break;
-                        case WAITINGOTHERS:
-                            System.out.println("Currently Waiting for Other Players.");
-                            break;
-                    }
-                }
-
-                try{
-                    synchronized (gameProgress){
-                        gameProgress.wait();
-                    }
-
-                }catch(InterruptedException e){
-                    e.printStackTrace();
-                }
-
+    /**
+     * Puts the Thread Handling Text Input to Sleep to prevent busy waiting
+     */
+    private void inputThreadSleep(){
+        try{
+            synchronized (inputThread){
+                inputThread.wait();
             }
-            System.out.println("Progress Thread Exiting");
-        }
+        }catch (InterruptedException ignored){}
     }
 
+    /**
+     * Sub-Class Which is Thread Executable and Handles User Terminal Input
+     */
     private class InputThread implements Runnable{
 
         @Override
         public void run() {
+
             while(gameState != GameState.GAMEOVER){
-                System.out.println(gameState);
                 String message = terminalIn.nextLine();
                 handleMessage(message);
-                try{
-                    synchronized (inputThread){
-                        inputThread.wait();
-                        System.out.println("Input Thread Woken");
-                    }
-                }catch (InterruptedException ignored){}
             }
             System.out.println("Input Thread Exiting");
         }

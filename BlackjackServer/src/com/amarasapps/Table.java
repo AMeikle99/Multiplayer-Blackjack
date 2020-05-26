@@ -17,7 +17,7 @@ public class Table implements Runnable {
 
     private ArrayList<Player> players;      //List of Players in the Game
     private CardShoe cardShoe;              //The CardShoe holding all the Decks for the Table
-    private int minimumBet;                 //Minimum Bet That Can Be Placed
+    private double minimumBet;                 //Minimum Bet That Can Be Placed
     private int decksUsed;                  //Decks Kept in the Shoe
     private int cardsBeforeShuffle;         //Card Limit Before Shoe is Reshuffled
 
@@ -30,7 +30,7 @@ public class Table implements Runnable {
      * @param decksUsed The number of decks to be stored in a card show
      * @param cardsBeforeShuffle The max number of cards left in Shoe before it is re-shuffled
      */
-    public Table(int minBet, int decksUsed, int cardsBeforeShuffle){
+    public Table(double minBet, int decksUsed, int cardsBeforeShuffle){
         this.minimumBet = minBet;
         this.decksUsed = decksUsed;
         this.cardsBeforeShuffle = cardsBeforeShuffle;
@@ -66,7 +66,7 @@ public class Table implements Runnable {
         for(Player player: players){
             player.setPlayGameState();
             try{
-                player.getPlayHandLatch().await();
+                player.waitPlayHandLatch();
             }catch(InterruptedException e){
                 e.printStackTrace();
             }
@@ -117,7 +117,14 @@ public class Table implements Runnable {
         return players.size();
     }
 
+    /**
+     * Decrements the Semaphore Latch by 1
+     */
     public void countDownBetLatch(){
         this.betsPlacedLatch.countDown();
+    }
+
+    public double getMinimumBet(){
+        return  this.minimumBet;
     }
 }

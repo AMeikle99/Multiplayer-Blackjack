@@ -31,6 +31,14 @@ public class Card {
         return this.rank.getNumericValue();
     }
 
+    /**
+     * Returns the Rank of The Card
+     * @return rank The Cards Rank (Ace, King...)
+     */
+    public Rank getRank() {
+        return rank;
+    }
+
     @Override
     public String toString() {
         return String.format("%2s %s", this.rank.toString(), this.suit.toString());
