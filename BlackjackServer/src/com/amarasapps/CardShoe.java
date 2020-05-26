@@ -5,9 +5,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 
 /**
- * The object which represents the card shoe, holds 1 or more decks used in gameplay
- *
+ * Multiplayer Blackjack Game
  * @author Aiden Meikle
+ * Github: AMeikle99
+ *
+ * The object which represents the card shoe, holds 1 or more decks used in gameplay
  */
 public class CardShoe {
 

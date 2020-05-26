@@ -1,9 +1,11 @@
 package com.amarasapps;
 
 /**
- * Used to Track the Game State for Each Player
- *
+ * Multiplayer Blackjack Game
  * @author Aiden Meikle
+ * Github: AMeikle99
+ *
+ * Used to Track the Game State for Each Player
  */
 public enum GameState {
     NOTSTARTED, WAITINGBET,PLAYING,WAITINGOTHERS, GAMEOVER

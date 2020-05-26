@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.Arrays;
 import java.util.Scanner;
 
 /**
@@ -35,6 +36,7 @@ public class BlackjackClient {
 
     double availBalance;
     double tableMinBet;
+    String gamePlayOptions;
 
     /**
      * Main Method which creates a new Client object and begins the connection/initialization process
@@ -71,7 +73,7 @@ public class BlackjackClient {
             System.out.println("Successfully Connected to Server!");
             gameState = GameState.NOTSTARTED;
             inputThread.start();
-            System.out.println("+--------------------+\n");
+            System.out.println("+--------------------+");
             System.out.println("Game Not Started Yet. Waiting for Others to Join");
 
             inputEntered = true;
@@ -81,16 +83,20 @@ public class BlackjackClient {
                     handleServerMessage(message);
                 }catch(SocketTimeoutException ignored){}
 
-
             }while(gameState != GameState.GAMEOVER);
 
             try{
+                synchronized (inputThread){
+                    inputThread.notify();
+                }
                 inputThread.join();
             }catch (InterruptedException ignored){}
             clientSocket.close();
             terminalIn.close();
+            System.out.println("+--------------------+");
             System.out.println("Game Over! Thanks for Playing");
             System.out.println("Exiting...");
+            System.out.println("+--------------------+");
 
         }catch (IOException e){
             e.printStackTrace();
@@ -115,6 +121,9 @@ public class BlackjackClient {
                         case "BETTINGSTAGE":
                             tableMinBet = Double.parseDouble(messageBits[3]);
                             availBalance = Double.parseDouble(messageBits[4]);
+                            synchronized (inputThread){
+                                inputThread.notify();
+                            }
                             handleBetStage();
                             break;
                         case "PLAYINGSTAGE":
@@ -126,20 +135,40 @@ public class BlackjackClient {
                             break;
                     }
                     break;
-                case "PLAYERBALANCE":
-                    System.out.println(String.format("Balance Available: %.2f", Double.parseDouble(messageBits[3])));
+                case "PLAYERHAND": {
+                    int handValue = Integer.parseInt(messageBits[2]);
+                    String[] cards = Arrays.copyOfRange(messageBits, 3, messageBits.length);
+                    printPlayerHand(handValue, cards);
+                    break;
+                }
+                case "DEALERHAND": {
+                    int handValue = Integer.parseInt(messageBits[2]);
+                    String[] cards = Arrays.copyOfRange(messageBits, 3, messageBits.length);
+                    printDealerHand(handValue, cards);
+                    break;
+                }
+                case "PLAYINGSTAGE":
+                    switch (messageBits[2]){
+                        case "PLAYERBJ":
+                            System.out.println("You Have BlackJack! Well Done!");
+                            break;
+                        case "PLAYERBUST":
+                            System.out.println("You Have Gone Bust! Nice One Ya Idgit!");
+                            break;
+                        case "HITSTAND":
+                            synchronized (inputThread){
+                                inputThread.notify();
+                            }
+                            gamePlayOptions = messageBits[2];
+                            System.out.print("Hit (H) or Stand (S): ");
+                            break;
+                    }
+                    break;
                 case "GAMEOVER":
                     setGameOverState();
                     break;
             }
         }
-
-        if(gameState != GameState.WAITINGOTHERS){
-            synchronized (inputThread){
-                inputThread.notify();
-            }
-        }
-
 
     }
 
@@ -155,7 +184,7 @@ public class BlackjackClient {
                     output.println(String.format("C-BET-%s", message));
                     inputThreadSleep();
                 }else{
-                    System.out.println("\n+--------------------+\n");
+                    System.out.println();
                     if(chosenBet < tableMinBet){
                         System.out.println("The bet entered is less than the Minimum Bet!");
                     }else if(chosenBet > availBalance){
@@ -164,10 +193,18 @@ public class BlackjackClient {
                     System.out.println(String.format("Available Balance: %.2f", availBalance));
                     System.out.print(String.format("Enter Bet (Min: %.2f): ", tableMinBet));
                 }
-
                 break;
             case PLAYING:
-                output.println(String.format("C-PLAYING-%s", message));
+                switch (gamePlayOptions){
+                    case "HITSTAND":
+                        if(message.equals("H") || message.equals("S")){
+                            output.println(String.format("C-PLAYING-%s",message));
+                            inputThreadSleep();
+                        }else{
+                            System.out.print("Invalid Choice!\nHit (H) or Stand (S): ");
+                        }
+                        break;
+                }
                 break;
             case WAITINGOTHERS:
                 break;
@@ -183,7 +220,7 @@ public class BlackjackClient {
     private void handleBetStage(){
         this.gameState = GameState.WAITINGBET;
         inputEntered = true;
-        System.out.println("+-------------------+\n");
+        System.out.println("+--------------------+");
         System.out.println("It is your Turn to place a Bet");
         System.out.println(String.format("Available Balance: %.2f", availBalance));
         System.out.print(String.format("Enter Your Bet (Min: %.2f): ", tableMinBet));
@@ -193,7 +230,7 @@ public class BlackjackClient {
      * Sets the Game State for the Player to Place Cards
      */
     private void setPlayGameState(){
-        System.out.println("+--------------------+\n");
+        System.out.println("+--------------------+");
         System.out.println("Time to Play Your Hand");
         this.gameState = GameState.PLAYING;
         inputEntered = true;
@@ -203,7 +240,7 @@ public class BlackjackClient {
      * Sets the Game State for the Player to Wait for Others
      */
     private void setWaitingState() {
-        System.out.println("+--------------------+\n");
+        System.out.println("+--------------------+");
         System.out.println("Currently Waiting for Other Players.");
         this.gameState = GameState.WAITINGOTHERS;
         inputEntered = true;
@@ -236,6 +273,24 @@ public class BlackjackClient {
         }catch (InterruptedException ignored){}
     }
 
+    private void printPlayerHand(int handValue, String[] cards){
+        StringBuilder handString = new StringBuilder();
+        handString.append(String.format("Your Hand (%d):", handValue));
+        for(String card: cards){
+            handString.append(String.format(" %s", card));
+        }
+        System.out.println(handString);
+        System.out.println("+--------------------+");
+    }
+    private void printDealerHand(int handValue, String[] cards){
+        StringBuilder handString = new StringBuilder();
+        handString.append(String.format("Dealer's Hand (%d):", handValue));
+        for(String card: cards){
+            handString.append(String.format(" %s", card));
+        }
+        System.out.println(handString);
+    }
+
     /**
      * Sub-Class Which is Thread Executable and Handles User Terminal Input
      */
@@ -248,7 +303,6 @@ public class BlackjackClient {
                 String message = terminalIn.nextLine();
                 handleMessage(message);
             }
-            System.out.println("Input Thread Exiting");
         }
     }
 }

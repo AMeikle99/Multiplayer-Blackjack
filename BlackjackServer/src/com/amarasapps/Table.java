@@ -15,11 +15,12 @@ import java.util.concurrent.CountDownLatch;
 
 public class Table implements Runnable {
 
-    private ArrayList<Player> players;      //List of Players in the Game
-    private CardShoe cardShoe;              //The CardShoe holding all the Decks for the Table
-    private double minimumBet;                 //Minimum Bet That Can Be Placed
-    private int decksUsed;                  //Decks Kept in the Shoe
-    private int cardsBeforeShuffle;         //Card Limit Before Shoe is Reshuffled
+    private ArrayList<Player> players;          //List of Players in the Game
+    private CardShoe cardShoe;                  //The CardShoe holding all the Decks for the Table
+    private double minimumBet;                  //Minimum Bet That Can Be Placed
+    private int decksUsed;                      //Decks Kept in the Shoe
+    private int cardsBeforeShuffle;             //Card Limit Before Shoe is Reshuffled
+    private BJHand dealersHand = new BJHand();  //The hand that represents the dealers hand
 
     private CountDownLatch betsPlacedLatch;      //Count of Players Who've Place their Bets
 
@@ -63,8 +64,9 @@ public class Table implements Runnable {
         }catch(InterruptedException e){
             e.printStackTrace();
         }
+        dealInitialCards();
         for(Player player: players){
-            player.setPlayGameState();
+            player.handlePlayStage();
             try{
                 player.waitPlayHandLatch();
             }catch(InterruptedException e){
@@ -93,6 +95,19 @@ public class Table implements Runnable {
             player.resetPlayer();
         }
     }
+
+    /**
+     * Deals every player and the dealer their initial 2 cards
+     */
+    private void dealInitialCards(){
+        for(int i = 0; i < 2; i++){
+            for(Player p: players){
+                p.getHand().addCard(cardShoe.dealCard());
+            }
+            dealersHand.addCard(cardShoe.dealCard());
+        }
+    }
+
     /**
      * Adds a new Player to the Playing Table
      * @param player    The new Player to be added to the Table
@@ -124,7 +139,28 @@ public class Table implements Runnable {
         this.betsPlacedLatch.countDown();
     }
 
+    /**
+     * Returns the minimum bet allowed for the Table
+     * @return minimum bet allowed to play
+     */
     public double getMinimumBet(){
         return  this.minimumBet;
+    }
+
+    public Card getDealerUpCard(){
+        return dealersHand.getCard(0);
+    }
+
+    public Card dealCard(){
+        return cardShoe.dealCard();
+    }
+
+    public int getDealerVisibleValue(){
+        if(getDealerUpCard().getRank() == Card.Rank.ACE){
+            return getDealerUpCard().value() + 10;
+        }else{
+            return getDealerUpCard().value();
+        }
+
     }
 }

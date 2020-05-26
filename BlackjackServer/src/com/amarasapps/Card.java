@@ -1,9 +1,11 @@
 package com.amarasapps;
 
 /**
- * An object that represents an individual playing card
- *
+ * Multiplayer Blackjack Game
  * @author Aiden Meikle
+ * Github: AMeikle99
+ *
+ * An object that represents an individual playing card
  */
 
 public class Card {
@@ -41,7 +43,7 @@ public class Card {
 
     @Override
     public String toString() {
-        return String.format("%2s %s", this.rank.toString(), this.suit.toString());
+        return String.format("%2s%s", this.rank.toString(), this.suit.toString());
     }
 
     public enum Rank {

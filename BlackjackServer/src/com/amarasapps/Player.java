@@ -10,6 +10,10 @@ import java.net.SocketTimeoutException;
 import java.util.concurrent.CountDownLatch;
 
 /**
+ * Multiplayer Blackjack Game
+ * @author Aiden Meikle
+ * Github: AMeikle99
+ *
  * Class which represents a player within the Blackjack Game. Ran as an individual thread and is blocked at each different game stage
  * by a Latch until the Table Thread unlocks it and allows it to advance.
  *
@@ -29,7 +33,7 @@ public class Player implements Runnable {
     private boolean isDone = false; //Tracks the State of the Player
     private GameState gameState;    //Tacks the Position in the Game
 
-    private CountDownLatch startGameLatch;  //Latch to make player wiat until game has started
+    private CountDownLatch startGameLatch;  //Latch to make player wait until game has started
     private CountDownLatch playHandLatch;
 
     /**
@@ -41,6 +45,7 @@ public class Player implements Runnable {
     public Player(Socket socket, Table table, double startingMoney){
         this.gameTable = table;
         this.balance = startingMoney;
+        hand = new BJHand();
         clientSocket = socket;
         playHandLatch = new CountDownLatch(1);
         try {
@@ -95,8 +100,7 @@ public class Player implements Runnable {
                 break;
             case "PLAYING":
                 System.out.println("Play: " + messageBits[2]);
-                setWaitingState();
-                playHandLatch.countDown();
+                handlePlayChoice(messageBits[2]);
                 break;
             default:
                 break;
@@ -109,7 +113,6 @@ public class Player implements Runnable {
     public void setGetBetState(){
         System.out.println("Set Bet State");
         this.gameState = GameState.WAITINGBET;
-
         output.println(String.format("S-ADVANCE-BETTINGSTAGE-%.2f-%.2f", gameTable.getMinimumBet(), getBalance()));
     }
 
@@ -121,6 +124,61 @@ public class Player implements Runnable {
         output.println("S-ADVANCE-PLAYINGSTAGE");
     }
 
+    public void handlePlayStage(){
+        setPlayGameState();
+        sendInitialTableState();
+        sendPlayOptions();
+    }
+
+    private void sendPlayOptions(){
+        if(hand.hasBlackjack()) {
+            output.println("S-PLAYINGSTAGE-PLAYERBJ");
+            setWaitingState();
+            playHandLatch.countDown();
+        }else if(hand.isBust()){
+            output.println("S-PLAYINGSTAGE-PLAYERBUST");
+            setWaitingState();
+            playHandLatch.countDown();
+        }else{
+            output.println("S-PLAYINGSTAGE-HITSTAND");
+        }
+    }
+
+    private void handlePlayChoice(String choice){
+        switch(choice){
+            case "H":
+                hand.addCard(gameTable.dealCard());
+                sendPlayerHandState();
+                sendPlayOptions();
+                break;
+            case "S":
+                setWaitingState();
+                playHandLatch.countDown();
+                break;
+        }
+    }
+
+    public void sendInitialTableState(){
+        String dealerHandState = String.format("S-DEALERHAND-%d-%s-XX", gameTable.getDealerVisibleValue(), gameTable.getDealerUpCard());
+        output.println(dealerHandState);
+        sendPlayerHandState();
+    }
+
+    public void sendPlayerHandState(){
+        StringBuilder playerHandState = new StringBuilder();
+        playerHandState.append(String.format("S-PLAYERHAND-%d",hand.handValue()));
+
+        for(int i = 0; i<hand.size(); i++){
+            Card card = hand.getCard(i);
+            playerHandState.append(String.format("-%s", card.toString()));
+        }
+
+        output.println(playerHandState.toString());
+    }
+
+    public void sendDealerHandState(){
+        //TODO: Send multiple of the dealers cards, similar to sendPlayerHandState method
+    }
     /**
      * Sets the Game State for the Player to Wait for Others
      */
@@ -191,6 +249,10 @@ public class Player implements Runnable {
 
     public double getBalance() {
         return balance;
+    }
+
+    public BJHand getHand() {
+        return hand;
     }
 }
 
