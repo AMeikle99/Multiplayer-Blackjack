@@ -23,20 +23,20 @@ public class BlackjackClient {
 
     //Move the below Members to a separate class, create a member of the new class
 
-    private int serverPort;
-    private String serverAddress;
-    private Socket clientSocket;
-    private BufferedReader input;
-    private PrintWriter output;
+    private int serverPort;                                             //Port Used by the Server
+    private String serverAddress;                                       //Address Used by Server
+    private Socket serverSocket;                                        //Socket to Communicate with Server
+    private BufferedReader input;                                       //Input Stream from the Server
+    private PrintWriter output;                                         //Output Stream to the Server
 
-    private GameState gameState;
-    private Scanner terminalIn;
-    private boolean inputEntered;
-    private  final Thread inputThread = new Thread(new InputThread());
+    private GameState gameState;                                        //The Current State for the Player
+    private Scanner terminalIn;                                         //Input Stream from the Terminal
+    private final Thread inputThread = new Thread(new InputThread());   //Thread that manages input from the User
 
-    double availBalance;
-    double tableMinBet;
-    String gamePlayOptions;
+    private double availBalance;                                        //The Balance Available to the User
+    private double tableMinBet;                                         //The Minimum Bet for the Table
+    private String gamePlayOptions;                                     //The possible options a player can choose from for the PlayStage
+    private double betAmount;                                           //The amount the player has bet for this round
 
     /**
      * Main Method which creates a new Client object and begins the connection/initialization process
@@ -64,11 +64,11 @@ public class BlackjackClient {
     public void beginGame(){
         try{
             System.out.println("Connecting to Server...");
-            this.clientSocket = new Socket(DEFAULT_SERVER_ADDRESS, DEFAULT_SERVER_PORT);
-            this.clientSocket.setSoTimeout(500);
-            InputStreamReader isr = new InputStreamReader(clientSocket.getInputStream());
+            this.serverSocket = new Socket(DEFAULT_SERVER_ADDRESS, DEFAULT_SERVER_PORT);
+            this.serverSocket.setSoTimeout(500);
+            InputStreamReader isr = new InputStreamReader(serverSocket.getInputStream());
             this.input = new BufferedReader(isr);
-            this.output = new PrintWriter(clientSocket.getOutputStream(), true);
+            this.output = new PrintWriter(serverSocket.getOutputStream(), true);
 
             System.out.println("Successfully Connected to Server!");
             gameState = GameState.NOTSTARTED;
@@ -76,7 +76,6 @@ public class BlackjackClient {
             System.out.println("+--------------------+");
             System.out.println("Game Not Started Yet. Waiting for Others to Join");
 
-            inputEntered = true;
             do{
                 try{
                     String message = input.readLine();
@@ -91,7 +90,7 @@ public class BlackjackClient {
                 }
                 inputThread.join();
             }catch (InterruptedException ignored){}
-            clientSocket.close();
+            serverSocket.close();
             terminalIn.close();
             System.out.println("+--------------------+");
             System.out.println("Game Over! Thanks for Playing");
@@ -147,6 +146,9 @@ public class BlackjackClient {
                     printDealerHand(handValue, cards);
                     break;
                 }
+                case "PLAYERBALANCE":
+                    availBalance = Double.parseDouble(messageBits[2]);
+                    System.out.println(String.format("Available Balance: %.2f", availBalance));
                 case "PLAYINGSTAGE":
                     switch (messageBits[2]){
                         case "PLAYERBJ":
@@ -156,14 +158,52 @@ public class BlackjackClient {
                             System.out.println("You Have Gone Bust! Nice One Ya Idgit!");
                             break;
                         case "HITSTAND":
+                        case "HITSTANDDOUBLE":
+                        case "HITSTANDDOUBLESPLIT":
+                        case "HITSTANDSPLIT":
                             synchronized (inputThread){
                                 inputThread.notify();
                             }
                             gamePlayOptions = messageBits[2];
-                            System.out.print("Hit (H) or Stand (S): ");
+                            printPlayOptions();
                             break;
+                        case "DD":
+                            betAmount *= 2;
+                            availBalance = Double.parseDouble(messageBits[3]);
+                            System.out.println(String.format("New Bet Amount: %.2f", betAmount));
+                            System.out.println(String.format("New Balance Amount: %.2f", availBalance));
                     }
                     break;
+                case "PAYOUTSTAGE":
+                    switch(messageBits[2]){
+                        case "DEALERBJ":
+                            System.out.println("Dealer Has BlackJack!");
+                            break;
+                        case "DEALERBUST":
+                            System.out.println("Dealer Has Bust!");
+                            break;
+                        case "PUSH":
+                            availBalance = Double.parseDouble(messageBits[3]);
+                            System.out.println("Push! No Money Won or Lost");
+                            System.out.println(String.format("New Balance: %.2f", availBalance));
+                            break;
+                        case "WIN":
+                            availBalance = Double.parseDouble(messageBits[3]);
+                            double payout = Double.parseDouble(messageBits[4]);
+
+                            System.out.println("You Have Beaten the Dealer!");
+                            System.out.println(String.format("Money Won: %.2f", payout));
+                            System.out.println(String.format("New Balance: %.2f", availBalance));
+                            break;
+                        case "LOSE":
+                            availBalance = Double.parseDouble(messageBits[3]);
+                            double lossAmount = Double.parseDouble(messageBits[4]);
+
+                            System.out.println("You Have Lost to the Dealer!");
+                            System.out.println(String.format("Money Won: %.2f", lossAmount));
+                            System.out.println(String.format("New Balance: %.2f", availBalance));
+                            break;
+                    }
                 case "GAMEOVER":
                     setGameOverState();
                     break;
@@ -182,6 +222,7 @@ public class BlackjackClient {
                 double chosenBet = Double.parseDouble(message);
                 if(chosenBet >= tableMinBet && chosenBet <= availBalance){
                     output.println(String.format("C-BET-%s", message));
+                    betAmount = chosenBet;
                     inputThreadSleep();
                 }else{
                     System.out.println();
@@ -197,12 +238,16 @@ public class BlackjackClient {
             case PLAYING:
                 switch (gamePlayOptions){
                     case "HITSTAND":
-                        if(message.equals("H") || message.equals("S")){
-                            output.println(String.format("C-PLAYING-%s",message));
-                            inputThreadSleep();
-                        }else{
-                            System.out.print("Invalid Choice!\nHit (H) or Stand (S): ");
-                        }
+                        validatePlayChoice("H-S", message);
+                        break;
+                    case "HITSTANDDOUBLE":
+                        validatePlayChoice("H-S-D", message);
+                        break;
+                    case "HITSTANDSPLIT":
+                        validatePlayChoice("H-S-SP", message);
+                        break;
+                    case "HITSTANDDOUBLESPLIT":
+                        validatePlayChoice("H-S-D-SP", message);
                         break;
                 }
                 break;
@@ -219,7 +264,6 @@ public class BlackjackClient {
      */
     private void handleBetStage(){
         this.gameState = GameState.WAITINGBET;
-        inputEntered = true;
         System.out.println("+--------------------+");
         System.out.println("It is your Turn to place a Bet");
         System.out.println(String.format("Available Balance: %.2f", availBalance));
@@ -233,7 +277,6 @@ public class BlackjackClient {
         System.out.println("+--------------------+");
         System.out.println("Time to Play Your Hand");
         this.gameState = GameState.PLAYING;
-        inputEntered = true;
     }
 
     /**
@@ -243,7 +286,6 @@ public class BlackjackClient {
         System.out.println("+--------------------+");
         System.out.println("Currently Waiting for Other Players.");
         this.gameState = GameState.WAITINGOTHERS;
-        inputEntered = true;
     }
 
     /**
@@ -252,7 +294,6 @@ public class BlackjackClient {
     private void setNotStartedState(){
         System.out.println("Currently Waiting for Other Players before Moving onto Next Round.");
         this.gameState = GameState.NOTSTARTED;
-        inputEntered = true;
     }
 
     /**
@@ -273,6 +314,11 @@ public class BlackjackClient {
         }catch (InterruptedException ignored){}
     }
 
+    /**
+     * Prints the Players Hand to the Terminal
+     * @param handValue The Numeric Value of the Hand
+     * @param cards An Array of Cards (Rank then Suit formatted)
+     */
     private void printPlayerHand(int handValue, String[] cards){
         StringBuilder handString = new StringBuilder();
         handString.append(String.format("Your Hand (%d):", handValue));
@@ -282,6 +328,12 @@ public class BlackjackClient {
         System.out.println(handString);
         System.out.println("+--------------------+");
     }
+
+    /**
+     * Prints the Dealers Hand to the Terminal
+     * @param handValue The Numeric Value of the Hand
+     * @param cards An Array of Cards (Rank then Suit formatted)
+     */
     private void printDealerHand(int handValue, String[] cards){
         StringBuilder handString = new StringBuilder();
         handString.append(String.format("Dealer's Hand (%d):", handValue));
@@ -289,6 +341,44 @@ public class BlackjackClient {
             handString.append(String.format(" %s", card));
         }
         System.out.println(handString);
+    }
+
+    /**
+     * Prints out the correct prompt depending on what the game play option sent was
+     */
+    private void printPlayOptions(){
+        switch(gamePlayOptions){
+            case "HITSTAND":
+                System.out.print("Hit (H) or Stand (S): ");
+                break;
+            case "HITSTANDDOUBLE":
+                System.out.print("Hit (H), Stand (S) or Double (D): ");
+                break;
+            case "HITSTANDSPLIT":
+                System.out.print("Hit (H), Stand (S) or Split (SP): ");
+                break;
+            case "HITSTANDDOUBLESPLIT":
+                System.out.print("Hit (H), Stand (S), Double (D) or Split (SP): ");
+                break;
+        }
+    }
+
+    private void validatePlayChoice(String options, String choice){
+        String[] splitOptions = options.split("-");
+        boolean validOption = false;
+
+        for(String option: splitOptions){
+            if(option.equals(choice)){
+                validOption = true;
+            }
+        }
+        if(validOption){
+            output.println(String.format("C-PLAYING-%s",choice));
+            inputThreadSleep();
+        }else{
+            System.out.println("Invalid Choice!");
+            printPlayOptions();
+        }
     }
 
     /**

@@ -28,13 +28,11 @@ public class Player implements Runnable {
     private BJHand hand;        //The Players Hand
     private Table gameTable;        //The Table the player belongs to
     private double balance;     //The Money the player has in the bank
-    private double placedBet;   //The money that was placed as a bet
 
     private boolean isDone = false; //Tracks the State of the Player
     private GameState gameState;    //Tacks the Position in the Game
 
-    private CountDownLatch startGameLatch;  //Latch to make player wait until game has started
-    private CountDownLatch playHandLatch;
+    private CountDownLatch playHandLatch;   //Latch to make the table wait until the player has had their turn
 
     /**
      * Constructor to Create a Runnable Player Object
@@ -84,6 +82,10 @@ public class Player implements Runnable {
 
     }
 
+    /**
+     * Handles any messages received from the client process and handles appropriately
+     * @param message The Message received from the client, a hyphen separated list of commands
+     */
     private void handleClientMessage(String message){
         String[] messageBits = message.split("-");
         if (messageBits.length < 2){
@@ -124,26 +126,48 @@ public class Player implements Runnable {
         output.println("S-ADVANCE-PLAYINGSTAGE");
     }
 
+    /**
+     * Sends the Client The State of the Game so as to begin the Play Stage
+     */
     public void handlePlayStage(){
         setPlayGameState();
         sendInitialTableState();
         sendPlayOptions();
     }
 
+    /**
+     * Informs the Player of their Game Options, i.e if they are bust or can Hit or Stand
+     */
     private void sendPlayOptions(){
+        if(hand.isDoubledDown()){
+
+        }
         if(hand.hasBlackjack()) {
             output.println("S-PLAYINGSTAGE-PLAYERBJ");
             setWaitingState();
             playHandLatch.countDown();
-        }else if(hand.isBust()){
+        }else if(hand.isBust()) {
             output.println("S-PLAYINGSTAGE-PLAYERBUST");
             setWaitingState();
             playHandLatch.countDown();
-        }else{
-            output.println("S-PLAYINGSTAGE-HITSTAND");
+        }else if(!hand.isDoubledDown()){
+            StringBuilder playOption = new StringBuilder();
+            playOption.append("HITSTAND");
+            if(hand.canDouble(balance)){
+                playOption.append("DOUBLE");
+            }
+            //TODO: Implement Splitting Ability, Need to have array of hands for player
+            /*if(hand.canSplit()){
+                playOption.append("SPLIT");
+            }*/
+            output.println(String.format("S-PLAYINGSTAGE-%s", playOption));
         }
     }
 
+    /**
+     * Handles the Play Stage Choice sent from the client, takes appropriate action
+     * @param choice The play option sent from the client
+     */
     private void handlePlayChoice(String choice){
         switch(choice){
             case "H":
@@ -155,15 +179,31 @@ public class Player implements Runnable {
                 setWaitingState();
                 playHandLatch.countDown();
                 break;
+            case "D":
+                hand.addCard(gameTable.dealCard());
+                balance -= hand.getHandBet();
+                hand.setDoubledDown();
+                sendPlayerHandState();
+                sendPlayOptions();
+                output.println(String.format("S-PLAYINGSTAGE-DD-%.2f", balance));
+                setWaitingState();
+                playHandLatch.countDown();
+                break;
         }
     }
 
-    public void sendInitialTableState(){
+    /**
+     * Sends the client what cards are in both their hand and the dealers hand
+     */
+    private void sendInitialTableState(){
         String dealerHandState = String.format("S-DEALERHAND-%d-%s-XX", gameTable.getDealerVisibleValue(), gameTable.getDealerUpCard());
         output.println(dealerHandState);
         sendPlayerHandState();
     }
 
+    /**
+     * Send the client the cards present in their own hand
+     */
     public void sendPlayerHandState(){
         StringBuilder playerHandState = new StringBuilder();
         playerHandState.append(String.format("S-PLAYERHAND-%d",hand.handValue()));
@@ -176,9 +216,50 @@ public class Player implements Runnable {
         output.println(playerHandState.toString());
     }
 
+    /**
+     * Sends the client the cards that were in the dealers hand
+     */
     public void sendDealerHandState(){
-        //TODO: Send multiple of the dealers cards, similar to sendPlayerHandState method
+        StringBuilder dealerHandState = new StringBuilder();
+        dealerHandState.append(String.format("S-DEALERHAND-%d",getDealersHand().handValue()));
+
+        for(int i = 0; i<getDealersHand().size(); i++){
+            Card card = getDealersHand().getCard(i);
+            dealerHandState.append(String.format("-%s", card.toString()));
+        }
+
+        output.println(dealerHandState.toString());
+        if(getDealersHand().hasBlackjack()){
+            output.println("S-PAYOUTSTAGE-DEALERBJ");
+        }
     }
+
+    public void processPayout(){
+        if(hand.isBust()){
+            output.println(String.format("S-PAYOUTSTAGE-LOSE-%.2f-%.2f", balance, hand.getHandBet()));
+            return;
+        }
+
+        if(hand.handValue() == getDealersHand().handValue()){
+            balance += hand.getHandBet();
+            output.println(String.format("S-PAYOUTSTAGE-PUSH-%.2f", balance));
+            return;
+        }
+
+        if(hand.hasBlackjack()){
+            double payout = 1.5 * hand.getHandBet();
+            balance += (payout + hand.getHandBet());
+            output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
+            return;
+        }
+
+        if(hand.handValue() > getDealersHand().handValue()){
+            double payout = hand.getHandBet();
+            balance += (payout + hand.getHandBet());
+            output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
+        }
+    }
+
     /**
      * Sets the Game State for the Player to Wait for Others
      */
@@ -195,6 +276,9 @@ public class Player implements Runnable {
         output.println("S-ADVANCE-NOTSTARTED");
     }
 
+    /**
+     * Sets the Game State fot the client to be game over and closes the connection with them
+     */
     public void setGameOverState(){
         isDone = true;
         gameState = GameState.GAMEOVER;
@@ -223,9 +307,12 @@ public class Player implements Runnable {
         playHandLatch.await();
     }
 
-
-    public void setPlacedBet(double placedBet) {
-        this.placedBet = placedBet;
+    /**
+     * Sets the Bet that the User has Placed
+     * @param placedBet The amount that the player has opted to bet on their hand
+     */
+    private void setPlacedBet(double placedBet) {
+        this.hand.setHandBet(placedBet);
     }
 
     /**
@@ -239,7 +326,11 @@ public class Player implements Runnable {
         this.balance += changeAmount;
     }
 
-    public void decrementBalance(double changeAmount){
+    /**
+     * Decrement the amount of money available to the player
+     * @param changeAmount  Amount to decrement by
+     */
+    private void decrementBalance(double changeAmount){
         if(changeAmount < 0){
             return;
         }
@@ -247,12 +338,24 @@ public class Player implements Runnable {
         this.balance -= changeAmount;
     }
 
+    /**
+     * Returns the balance available to the player
+     * @return  The player's available balance
+     */
     public double getBalance() {
         return balance;
     }
 
+    /**
+     * Returns the hand the player has
+     * @return The Hand the player has
+     */
     public BJHand getHand() {
         return hand;
+    }
+
+    public BJHand getDealersHand(){
+        return gameTable.getDealersHand();
     }
 }
 

@@ -73,6 +73,7 @@ public class Table implements Runnable {
                 e.printStackTrace();
             }
         }
+        dealersTurn();
         while(playerCount() > 0){
             players.get(0).setGameOverState();
             players.remove(0);
@@ -108,6 +109,17 @@ public class Table implements Runnable {
         }
     }
 
+    private void dealersTurn(){
+        while(!dealersHand.hasBlackjack() && !dealersHand.isBust() && dealersHand.handValue() < 17){
+            dealersHand.addCard(cardShoe.dealCard());
+        }
+
+        for(Player player: players){
+            player.sendDealerHandState();
+            player.sendPlayerHandState();
+            player.processPayout();
+        }
+    }
     /**
      * Adds a new Player to the Playing Table
      * @param player    The new Player to be added to the Table
@@ -162,5 +174,9 @@ public class Table implements Runnable {
             return getDealerUpCard().value();
         }
 
+    }
+
+    public BJHand getDealersHand() {
+        return dealersHand;
     }
 }
