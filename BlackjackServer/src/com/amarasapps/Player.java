@@ -150,6 +150,10 @@ public class Player implements Runnable {
             output.println("S-PLAYINGSTAGE-PLAYERBUST");
             setWaitingState();
             playHandLatch.countDown();
+        }else if(hand.handValue() == 21){
+            output.println("S-PLAYINGSTAGE-PLAYERMAXVAL");
+            setWaitingState();
+            playHandLatch.countDown();
         }else if(!hand.isDoubledDown()){
             StringBuilder playOption = new StringBuilder();
             playOption.append("HITSTAND");
@@ -231,6 +235,8 @@ public class Player implements Runnable {
         output.println(dealerHandState.toString());
         if(getDealersHand().hasBlackjack()){
             output.println("S-PAYOUTSTAGE-DEALERBJ");
+        }else if(getDealersHand().isBust()){
+            output.println("S-PAYOUTSTAGE-DEALERBUST");
         }
     }
 
@@ -253,10 +259,15 @@ public class Player implements Runnable {
             return;
         }
 
-        if(hand.handValue() > getDealersHand().handValue()){
+        if(hand.handValue() > getDealersHand().handValue() || getDealersHand().isBust()){
             double payout = hand.getHandBet();
             balance += (payout + hand.getHandBet());
             output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
+            return;
+        }
+
+        if(hand.handValue() < getDealersHand().handValue()){
+            output.println(String.format("S-PAYOUTSTAGE-LOSE-%.2f-%.2f", balance, hand.getHandBet()));
         }
     }
 

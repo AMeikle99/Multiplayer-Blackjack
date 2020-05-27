@@ -24,7 +24,7 @@ public class BlackjackServer {
     private static final int SERVER_PORT = 8080;        //Server Port
     private static String SERVER_ADDRESS;               //IP Address of Server
 
-    private static final int PLAYERS_PER_TABLE = 2;     //Number of Connected Clients
+    private static final int PLAYERS_PER_TABLE = 4;     //Number of Connected Clients
     private static final double MINIMUM_BET = 100.00;         //Minimum Allowed Bet
     private static final int DECKS_USED = 8;            //Decks Kept in the Shoe
     private static final int CARDS_BEFORE_SHUFFLE = 80; //Cards remaining in the deck before a re-shuffle

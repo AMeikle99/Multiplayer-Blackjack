@@ -157,6 +157,9 @@ public class BlackjackClient {
                         case "PLAYERBUST":
                             System.out.println("You Have Gone Bust! Nice One Ya Idgit!");
                             break;
+                        case "PLAYERMAXVAL":
+                            System.out.println("Your Hand Is Worth 21. Moving On...");
+                            break;
                         case "HITSTAND":
                         case "HITSTANDDOUBLE":
                         case "HITSTANDDOUBLESPLIT":
