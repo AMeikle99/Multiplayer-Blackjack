@@ -70,7 +70,9 @@ public class Table implements Runnable {
             e.printStackTrace();
         }
         dealInitialCards();
+
         for(Player player: players){
+            player.setPlayGameState();
             player.handlePlayStage();
             try{
                 player.waitPlayHandLatch();
@@ -135,7 +137,7 @@ public class Table implements Runnable {
     private void dealInitialCards(){
         for(int i = 0; i < 2; i++){
             for(Player p: players){
-                p.getHand().addCard(cardShoe.dealCard());
+                p.getCurrentHand().addCard(cardShoe.dealCard());
             }
             dealersHand.addCard(cardShoe.dealCard());
         }
@@ -148,7 +150,6 @@ public class Table implements Runnable {
 
         for(Player player: players){
             player.sendDealerHandState();
-            player.sendPlayerHandState();
             player.processPayout();
         }
     }
@@ -223,5 +224,9 @@ public class Table implements Runnable {
 
     public BJHand getDealersHand() {
         return dealersHand;
+    }
+
+    public boolean isLastPlayer(Player p){
+        return players.indexOf(p) == players.size()-1;
     }
 }

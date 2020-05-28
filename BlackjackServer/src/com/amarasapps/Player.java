@@ -7,6 +7,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -25,7 +26,8 @@ public class Player implements Runnable {
     private PrintWriter output;     //Output Stream to Player
     private Socket clientSocket;    //Socket COnnecting to Client
 
-    private BJHand hand;        //The Players Hand
+    private ArrayList<BJHand> hands;        //The Players Hand
+    private BJHand currentHand;             //The current Players Hand
     private Table gameTable;        //The Table the player belongs to
     private double balance;     //The Money the player has in the bank
 
@@ -44,7 +46,9 @@ public class Player implements Runnable {
     public Player(Socket socket, Table table, double startingMoney){
         this.gameTable = table;
         this.balance = startingMoney;
-        hand = new BJHand();
+        hands = new ArrayList<>();
+        currentHand = new BJHand();
+        hands.add(currentHand);
         clientSocket = socket;
         playHandLatch = new CountDownLatch(1);
         stillPlayingLatch = new CountDownLatch(1);
@@ -99,7 +103,10 @@ public class Player implements Runnable {
                 System.out.println("Bet: " + messageBits[2]);
                 double placedBet = Double.parseDouble(messageBits[2]);
                 setPlacedBet(placedBet);
-                setWaitingState();
+                if (gameTable.playerCount() > 1) {
+                    setWaitingState();
+                }
+
                 gameTable.countDownBetLatch();
                 break;
             case "PLAYING":
@@ -112,7 +119,9 @@ public class Player implements Runnable {
                     isDone = true;
                     setGameOverState();
                 }else{
-                    setNotStartedState();
+                    if(gameTable.playerCount() > 1) {
+                        setNotStartedState();
+                    }
                 }
 
                 gameTable.countDownPlayAgainLatch();
@@ -133,7 +142,7 @@ public class Player implements Runnable {
     /**
      * Sets the Game State for the Player to Place Cards
      */
-    private void setPlayGameState(){
+    public void setPlayGameState(){
         this.gameState = GameState.PLAYING;
         output.println("S-ADVANCE-PLAYINGSTAGE");
     }
@@ -147,7 +156,6 @@ public class Player implements Runnable {
      * Sends the Client The State of the Game so as to begin the Play Stage
      */
     public void handlePlayStage(){
-        setPlayGameState();
         sendInitialTableState();
         sendPlayOptions();
     }
@@ -157,28 +165,30 @@ public class Player implements Runnable {
      */
     private void sendPlayOptions(){
 
-        if(hand.hasBlackjack()) {
+        if(currentHand.hasBlackjack()) {
             output.println("S-PLAYINGSTAGE-PLAYERBJ");
-            setWaitingState();
+            if(gameTable.playerCount() > 1)
+                setWaitingState();
             playHandLatch.countDown();
-        }else if(hand.isBust()) {
+        }else if(currentHand.isBust()) {
             output.println("S-PLAYINGSTAGE-PLAYERBUST");
-            setWaitingState();
+            if(gameTable.playerCount() > 1)
+                setWaitingState();
             playHandLatch.countDown();
-        }else if(hand.handValue() == 21){
+        }else if(currentHand.handValue() == 21){
             output.println("S-PLAYINGSTAGE-PLAYERMAXVAL");
-            setWaitingState();
+            if(gameTable.playerCount() > 1)
+                setWaitingState();
             playHandLatch.countDown();
-        }else if(!hand.isDoubledDown()){
+        }else if(!currentHand.isDoubledDown()){
             StringBuilder playOption = new StringBuilder();
             playOption.append("HITSTAND");
-            if(hand.canDouble(balance)){
+            if(currentHand.canDouble(balance)){
                 playOption.append("DOUBLE");
             }
-            //TODO: Implement Splitting Ability, Need to have array of hands for player
-            /*if(hand.canSplit()){
+            if(currentHand.canSplit()){
                 playOption.append("SPLIT");
-            }*/
+            }
             output.println(String.format("S-PLAYINGSTAGE-%s", playOption));
         }
     }
@@ -190,23 +200,41 @@ public class Player implements Runnable {
     private void handlePlayChoice(String choice){
         switch(choice){
             case "H":
-                hand.addCard(gameTable.dealCard());
-                sendPlayerHandState();
+                currentHand.addCard(gameTable.dealCard());
+                sendPlayerHandState(currentHand);
                 sendPlayOptions();
                 break;
             case "S":
-                setWaitingState();
-                playHandLatch.countDown();
+                if(isNotFinalHand()){
+                    currentHand = getNextHand();
+                    handlePlayStage();
+                }else{
+                    if (gameTable.playerCount() > 1 && !gameTable.isLastPlayer(this)) {
+                        setWaitingState();
+                    }
+                    playHandLatch.countDown();
+                }
                 break;
             case "D":
-                hand.addCard(gameTable.dealCard());
-                hand.setDoubledDown();
-                sendPlayerHandState();
-                sendPlayOptions();
-                output.println(String.format("S-PLAYINGSTAGE-DD-%.2f", hand.getHandBet()));
-                setWaitingState();
-                playHandLatch.countDown();
+                currentHand.addCard(gameTable.dealCard());
+                currentHand.setDoubledDown();
+                sendPlayerHandState(currentHand);
+                output.println(String.format("S-PLAYINGSTAGE-DD-%.2f", currentHand.getHandBet()));
+                if(isNotFinalHand()){
+                    currentHand = getNextHand();
+                    handlePlayStage();
+                }else{
+                    if (gameTable.playerCount() > 1 && !gameTable.isLastPlayer(this)) {
+                        setWaitingState();
+                    }
+                    playHandLatch.countDown();
+                }
                 break;
+            case "SP":
+                splitHand();
+                output.println("S-PLAYINGSTAGE-SPLITHAND");
+                sendPlayerHandState(currentHand);
+                sendPlayOptions();
         }
     }
 
@@ -216,15 +244,15 @@ public class Player implements Runnable {
     private void sendInitialTableState(){
         String dealerHandState = String.format("S-DEALERHAND-%d-%s-XX", gameTable.getDealerVisibleValue(), gameTable.getDealerUpCard());
         output.println(dealerHandState);
-        sendPlayerHandState();
+        sendPlayerHandState(currentHand);
     }
 
     /**
      * Send the client the cards present in their own hand
      */
-    public void sendPlayerHandState(){
+    public void sendPlayerHandState(BJHand hand){
         StringBuilder playerHandState = new StringBuilder();
-        playerHandState.append(String.format("S-PLAYERHAND-%d",hand.handValue()));
+        playerHandState.append(String.format("S-PLAYERHAND-%d-%d",hands.indexOf(hand)+1,hand.handValue()));
 
         for(int i = 0; i<hand.size(); i++){
             Card card = hand.getCard(i);
@@ -255,43 +283,62 @@ public class Player implements Runnable {
     }
 
     public void processPayout(){
-        if(hand.isBust()){
-            decrementBalance(hand.getHandBet());
-            output.println(String.format("S-PAYOUTSTAGE-LOSE-%.2f-%.2f", balance, hand.getHandBet()));
-            return;
+
+        double totalPayout = 0;
+
+        for(int i=0; i<hands.size(); i++){
+            BJHand hand = hands.get(i);
+            sendPlayerHandState(hand);
+            if(hand.isBust()){
+                totalPayout -= hand.getHandBet();
+                decrementBalance(hand.getHandBet());
+                output.println(String.format("S-PAYOUTSTAGE-HANDLOSE-%d",i+1));
+                continue;
+            }
+
+            if(hand.handValue() == getDealersHand().handValue()){
+                output.println(String.format("S-PAYOUTSTAGE-HANDPUSH-%d", i+1));
+                continue;
+            }
+
+            if(hand.hasBlackjack()){
+                double payout = 1.5 * hand.getHandBet();
+                totalPayout += payout;
+                incrementBalance(payout);
+                output.println(String.format("S-PAYOUTSTAGE-HANDWIN-%d", i+1));
+                continue;
+            }
+
+            if(hand.handValue() > getDealersHand().handValue() || getDealersHand().isBust()){
+                totalPayout += hand.getHandBet();
+                incrementBalance(hand.getHandBet());
+                output.println(String.format("S-PAYOUTSTAGE-HANDWIN-%d", i+1));
+                continue;
+            }
+
+            if(hand.handValue() < getDealersHand().handValue()){
+                totalPayout -= hand.getHandBet();
+                decrementBalance(hand.getHandBet());
+                output.println(String.format("S-PAYOUTSTAGE-HANDLOSE-%d", i+1));
+            }
         }
 
-        if(hand.handValue() == getDealersHand().handValue()){
-            output.println(String.format("S-PAYOUTSTAGE-PUSH-%.2f", balance));
-            return;
+        if(totalPayout < 0){
+            output.println(String.format("S-PAYOUTSTAGE-ROUNDLOSE-%.2f-%.2f",balance, -1*totalPayout));
+        }else{
+            output.println(String.format("S-PAYOUTSTAGE-ROUNDWIN-%.2f-%.2f",balance, totalPayout));
         }
 
-        if(hand.hasBlackjack()){
-            double payout = 1.5 * hand.getHandBet();
-            incrementBalance(hand.getHandBet());
-            output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
-            return;
-        }
 
-        if(hand.handValue() > getDealersHand().handValue() || getDealersHand().isBust()){
-            double payout = hand.getHandBet();
-            incrementBalance(hand.getHandBet());
-            output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
-            return;
-        }
-
-        if(hand.handValue() < getDealersHand().handValue()){
-            decrementBalance(hand.getHandBet());
-            output.println(String.format("S-PAYOUTSTAGE-LOSE-%.2f-%.2f", balance, hand.getHandBet()));
-        }
     }
 
     /**
      * Sets the Game State for the Player to Wait for Others
      */
-    public void setWaitingState() {
+    private void setWaitingState() {
         this.gameState = GameState.WAITINGOTHERS;
         output.println("S-ADVANCE-WAITINGOTHERS");
+
     }
 
     /**
@@ -315,7 +362,9 @@ public class Player implements Runnable {
     public void resetPlayer(){
         playHandLatch = new CountDownLatch(1);
         stillPlayingLatch = new CountDownLatch(1);
-        hand.clear();
+        hands.clear();
+        currentHand = new BJHand();
+        hands.add(currentHand);
     }
 
     /**
@@ -330,14 +379,14 @@ public class Player implements Runnable {
      * @param placedBet The amount that the player has opted to bet on their hand
      */
     private void setPlacedBet(double placedBet) {
-        this.hand.setHandBet(placedBet);
+        this.currentHand.setHandBet(placedBet);
     }
 
     /**
      * Increments the value of the player's balance
      * @param changeAmount The amount to increment the balance by.
      */
-    public void incrementBalance(double changeAmount){
+    private void incrementBalance(double changeAmount){
         if(changeAmount < 0){
             return;
         }
@@ -365,11 +414,11 @@ public class Player implements Runnable {
     }
 
     /**
-     * Returns the hand the player has
+     * Returns the current hand the player has
      * @return The Hand the player has
      */
-    public BJHand getHand() {
-        return hand;
+    public BJHand getCurrentHand() {
+        return currentHand;
     }
 
     public BJHand getDealersHand(){
@@ -395,6 +444,24 @@ public class Player implements Runnable {
 
     public boolean hasChosenToQuit(){
         return isDone;
+    }
+
+    private boolean isNotFinalHand(){
+        return hands.indexOf(currentHand) < hands.size()-1;
+    }
+
+    private BJHand getNextHand(){
+        return hands.get(hands.indexOf(currentHand)+1);
+    }
+
+    private void splitHand(){
+        BJHand newHand = new BJHand();
+        newHand.addCard(currentHand.removeCard(1));
+        newHand.setHandBet(currentHand.getHandBet());
+
+        currentHand.addCard(gameTable.dealCard());
+        newHand.addCard(gameTable.dealCard());
+        hands.add(hands.indexOf(currentHand)+1, newHand);
     }
 }
 

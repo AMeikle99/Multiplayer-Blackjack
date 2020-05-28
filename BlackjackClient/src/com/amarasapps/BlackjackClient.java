@@ -144,9 +144,13 @@ public class BlackjackClient {
                     }
                     break;
                 case "PLAYERHAND": {
-                    int handValue = Integer.parseInt(messageBits[2]);
-                    String[] cards = Arrays.copyOfRange(messageBits, 3, messageBits.length);
-                    printPlayerHand(handValue, cards);
+                    try {
+                        Thread.sleep(500);
+                    }catch (InterruptedException ignored){}
+                    int handNumber = Integer.parseInt(messageBits[2]);
+                    int handValue = Integer.parseInt(messageBits[3]);
+                    String[] cards = Arrays.copyOfRange(messageBits, 4, messageBits.length);
+                    printPlayerHand(handNumber, handValue, cards);
                     break;
                 }
                 case "DEALERHAND": {
@@ -162,12 +166,21 @@ public class BlackjackClient {
                     switch (messageBits[2]){
                         case "PLAYERBJ":
                             System.out.println("You Have BlackJack! Well Done!");
+                            try{
+                                Thread.sleep(500);
+                            }catch(InterruptedException ignored){}
                             break;
                         case "PLAYERBUST":
                             System.out.println("You Have Gone Bust! Nice One Ya Idgit!");
+                            try{
+                                Thread.sleep(500);
+                            }catch(InterruptedException ignored){}
                             break;
                         case "PLAYERMAXVAL":
                             System.out.println("Your Hand Is Worth 21. Moving On...");
+                            try{
+                                Thread.sleep(500);
+                            }catch(InterruptedException ignored){}
                             break;
                         case "HITSTAND":
                         case "HITSTANDDOUBLE":
@@ -184,6 +197,11 @@ public class BlackjackClient {
                             availBalance = Double.parseDouble(messageBits[3]);
                             System.out.println(String.format("New Bet Amount: %.2f", betAmount));
                             System.out.println(String.format("New Balance Amount: %.2f", availBalance));
+                            break;
+                        case "SPLITHAND":
+                            System.out.println("Hands Split");
+                            System.out.println("+--------------------+");
+                            break;
                     }
                     break;
                 case "PAYOUTSTAGE":
@@ -194,27 +212,45 @@ public class BlackjackClient {
                         case "DEALERBUST":
                             System.out.println("Dealer Has Bust!");
                             break;
-                        case "PUSH":
-                            availBalance = Double.parseDouble(messageBits[3]);
-                            System.out.println("Push! No Money Won or Lost");
-                            System.out.println(String.format("New Balance: %.2f", availBalance));
+                        case "HANDPUSH": {
+                            int thisHand = Integer.parseInt(messageBits[3]);
+                            System.out.printf("Hand %d Push!\n", thisHand);
                             break;
-                        case "WIN":
+                        }
+                        case "HANDWIN": {
+                            int thisHand = Integer.parseInt(messageBits[3]);
+                            System.out.printf("Hand %d Wins!\n", thisHand);
+                            break;
+                        }
+                        case "HANDLOSE": {
+                            int thisHand = Integer.parseInt(messageBits[3]);
+                            System.out.printf("Hand %d Loses!\n", thisHand);
+                            break;
+                        }
+                        case "ROUNDLOSE": {
+                            try {
+                                Thread.sleep(500);
+                            }catch (InterruptedException ignored){}
                             availBalance = Double.parseDouble(messageBits[3]);
                             double payout = Double.parseDouble(messageBits[4]);
-
-                            System.out.println("You Have Beaten the Dealer!");
-                            System.out.println(String.format("Money Won: %.2f", payout));
-                            System.out.println(String.format("New Balance: %.2f", availBalance));
+                            System.out.println("+--------------------+");
+                            System.out.println("Round Update:");
+                            System.out.printf("\tNew Balance: %.2f\n", availBalance);
+                            System.out.printf("\tBalance Change: -%.2f\n", payout);
                             break;
-                        case "LOSE":
+                        }
+                        case "ROUNDWIN": {
+                            try {
+                                Thread.sleep(500);
+                            }catch (InterruptedException ignored){}
                             availBalance = Double.parseDouble(messageBits[3]);
-                            double lossAmount = Double.parseDouble(messageBits[4]);
-
-                            System.out.println("You Have Lost to the Dealer!");
-                            System.out.println(String.format("Money Won: %.2f", lossAmount));
-                            System.out.println(String.format("New Balance: %.2f", availBalance));
+                            double payout = Double.parseDouble(messageBits[4]);
+                            System.out.println("+--------------------+");
+                            System.out.println("Round Update:");
+                            System.out.printf("\tNew Balance: %.2f\n", availBalance);
+                            System.out.printf("\tBalance Change: +%.2f\n", payout);
                             break;
+                        }
                     }
                     break;
                 case "LOWBALANCE":
@@ -289,6 +325,9 @@ public class BlackjackClient {
      */
     private void handleBetStage(){
         this.gameState = GameState.WAITINGBET;
+        try {
+            Thread.sleep(300);
+        }catch (InterruptedException ignored){}
         System.out.println("+--------------------+");
         System.out.println("New Round - It is your Turn to place a Bet");
         System.out.println(String.format("Available Balance: %.2f", availBalance));
@@ -323,6 +362,9 @@ public class BlackjackClient {
     }
 
     private void setPlayAgainState(){
+        try {
+            Thread.sleep(300);
+        }catch (InterruptedException ignored){}
         System.out.println("+--------------------+");
         System.out.print("Would you like to Play Again (Y/N): ");
         gameState = GameState.PLAYAGAIN;
@@ -351,14 +393,13 @@ public class BlackjackClient {
      * @param handValue The Numeric Value of the Hand
      * @param cards An Array of Cards (Rank then Suit formatted)
      */
-    private void printPlayerHand(int handValue, String[] cards){
+    private void printPlayerHand(int handNumber, int handValue, String[] cards){
         StringBuilder handString = new StringBuilder();
-        handString.append(String.format("Your Hand (%d):", handValue));
+        handString.append(String.format("Hand %d (%d):", handNumber, handValue));
         for(String card: cards){
             handString.append(String.format(" %s", card));
         }
         System.out.println(handString);
-        System.out.println("+--------------------+");
     }
 
     /**
@@ -367,6 +408,7 @@ public class BlackjackClient {
      * @param cards An Array of Cards (Rank then Suit formatted)
      */
     private void printDealerHand(int handValue, String[] cards){
+        System.out.println("+--------------------+");
         StringBuilder handString = new StringBuilder();
         handString.append(String.format("Dealer's Hand (%d):", handValue));
         for(String card: cards){

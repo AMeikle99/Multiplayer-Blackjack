@@ -1,6 +1,7 @@
 package com.amarasapps;
 
 import java.util.ArrayList;
+import java.util.Optional;
 
 /**
  * Multiplayer Blackjack Game
@@ -147,6 +148,11 @@ public class BJHand {
         return isDoubledDown;
     }
 
+    public Card removeCard(int i){
+        Card card = getCard(i);
+        cards.remove(i);
+        return card;
+    }
 
     /**
      * Empties the Players Playing Hand and resets the FullRank Ace boolean to false
