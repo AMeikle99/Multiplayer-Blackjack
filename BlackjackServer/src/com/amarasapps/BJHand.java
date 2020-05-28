@@ -93,7 +93,7 @@ public class BJHand {
      * @return True if the hand is eligible to Double Down
      */
     public boolean canDouble(double playerBalance){
-        return handValue() >= 9 && handValue() <= 11 && size() == 2 && playerBalance >= handBet;
+        return handValue() >= 9 && handValue() <= 11 && size() == 2 && playerBalance >= 2 * handBet;
     }
 
     public boolean canSplit(){
@@ -153,6 +153,7 @@ public class BJHand {
      */
     public void clear(){
         hasFullValueAce = false;
+        isDoubledDown = false;
         cards.clear();
     }
 }

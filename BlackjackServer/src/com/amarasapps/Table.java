@@ -3,6 +3,7 @@ package com.amarasapps;
 
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 
 /**
  * Multiplayer Blackjack Game
@@ -23,6 +24,7 @@ public class Table implements Runnable {
     private BJHand dealersHand = new BJHand();  //The hand that represents the dealers hand
 
     private CountDownLatch betsPlacedLatch;      //Count of Players Who've Place their Bets
+    private CountDownLatch playAgainLatch;      //Count of Players who are being asked to play again
 
 
     /**
@@ -47,6 +49,8 @@ public class Table implements Runnable {
         cardShoe = new CardShoe(decksUsed);
 
         do{
+            System.out.println("Playing a New Game");
+            System.out.println("Player Count: " + playerCount());
             playGame();
         }while(playerCount() > 0);
     }
@@ -55,7 +59,8 @@ public class Table implements Runnable {
      * Execute a Single Round of the Game
      */
     private void playGame(){
-        setup();
+        betsPlacedLatch = new CountDownLatch(players.size());
+
         for(Player player: players){
             player.setGetBetState();
         }
@@ -74,24 +79,51 @@ public class Table implements Runnable {
             }
         }
         dealersTurn();
-        while(playerCount() > 0){
-            players.get(0).setGameOverState();
-            players.remove(0);
-        }
+        resetTable();
     }
 
     /**
      * Resets the State of the Table for a new Game
      */
-    private void setup(){
+    private void resetTable(){
         System.out.println("Table Setup");
         if(cardShoe.cardsLeft() <= cardsBeforeShuffle){
             this.cardShoe = new CardShoe(decksUsed);
         }
         //TODO: Check all players are still connected
-        //TODO: Check Players are still Eligible
 
-        betsPlacedLatch = new CountDownLatch(players.size());
+        ArrayList<Player> inelligiblePlayers = getInelligiblePlayers();
+        ArrayList<Player> elligiblePlayers = getElligiblePlayers();
+        playAgainLatch = new CountDownLatch(elligiblePlayers.size());
+        System.out.printf("Inelligible Count: %d\tElligible Count: %d\n", inelligiblePlayers.size(), elligiblePlayers.size());
+
+        for(Player player: inelligiblePlayers){
+            player.informLowBalance();
+            player.setGameOverState();
+        }
+
+        for(Player player: elligiblePlayers){
+            player.setPlayAgainState();
+        }
+        if(elligiblePlayers.size() > 0){
+            try{
+                playAgainLatch.await();
+            }catch (InterruptedException ignored){}
+            for(Player player: elligiblePlayers){
+                if(player.hasChosenToQuit()){
+                    inelligiblePlayers.add(player);
+                }
+            }
+
+        }
+
+        System.out.printf("Inelligible Count Now: %d\n", inelligiblePlayers.size());
+        for(Player player: inelligiblePlayers){
+            removePlayer(player);
+        }
+
+        dealersHand.clear();
+
         for(Player player: players){
             player.resetPlayer();
         }
@@ -148,7 +180,11 @@ public class Table implements Runnable {
      * Decrements the Semaphore Latch by 1
      */
     public void countDownBetLatch(){
-        this.betsPlacedLatch.countDown();
+        betsPlacedLatch.countDown();
+    }
+
+    public void countDownPlayAgainLatch(){
+        playAgainLatch.countDown();
     }
 
     /**
@@ -174,6 +210,15 @@ public class Table implements Runnable {
             return getDealerUpCard().value();
         }
 
+    }
+
+    private ArrayList<Player> getElligiblePlayers(){
+        return players.stream().filter(Player::isStillEligible).collect(Collectors.toCollection(ArrayList::new));
+
+    }
+
+    private ArrayList<Player> getInelligiblePlayers(){
+        return players.stream().filter(Player::isNotStillElligible).collect(Collectors.toCollection(ArrayList::new));
     }
 
     public BJHand getDealersHand() {

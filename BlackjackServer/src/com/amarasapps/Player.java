@@ -33,6 +33,7 @@ public class Player implements Runnable {
     private GameState gameState;    //Tacks the Position in the Game
 
     private CountDownLatch playHandLatch;   //Latch to make the table wait until the player has had their turn
+    private CountDownLatch stillPlayingLatch; //Latch to make sure the table wait until the player has decided if they wish to keep playing
 
     /**
      * Constructor to Create a Runnable Player Object
@@ -46,6 +47,7 @@ public class Player implements Runnable {
         hand = new BJHand();
         clientSocket = socket;
         playHandLatch = new CountDownLatch(1);
+        stillPlayingLatch = new CountDownLatch(1);
         try {
             socket.setSoTimeout(500);
             InputStreamReader isr = new InputStreamReader(socket.getInputStream());
@@ -78,8 +80,8 @@ public class Player implements Runnable {
             }catch (SocketTimeoutException e){
                 inputEntered = false;
             }catch(InterruptedException | IOException ignored){}
-        }while(!isDone);
-
+        }while(isStillEligible() && !hasChosenToQuit());
+        System.out.println("Exiting Player Thread");
     }
 
     /**
@@ -87,6 +89,7 @@ public class Player implements Runnable {
      * @param message The Message received from the client, a hyphen separated list of commands
      */
     private void handleClientMessage(String message){
+        System.out.println("Message: " + message);
         String[] messageBits = message.split("-");
         if (messageBits.length < 2){
             return;
@@ -96,7 +99,6 @@ public class Player implements Runnable {
                 System.out.println("Bet: " + messageBits[2]);
                 double placedBet = Double.parseDouble(messageBits[2]);
                 setPlacedBet(placedBet);
-                decrementBalance(placedBet);
                 setWaitingState();
                 gameTable.countDownBetLatch();
                 break;
@@ -104,6 +106,16 @@ public class Player implements Runnable {
                 System.out.println("Play: " + messageBits[2]);
                 handlePlayChoice(messageBits[2]);
                 break;
+            case "PLAYAGAIN":
+                System.out.println("Play Again: " + messageBits[2]);
+                if(messageBits[2].equals("N")){
+                    isDone = true;
+                    setGameOverState();
+                }else{
+                    setNotStartedState();
+                }
+
+                gameTable.countDownPlayAgainLatch();
             default:
                 break;
         }
@@ -121,9 +133,14 @@ public class Player implements Runnable {
     /**
      * Sets the Game State for the Player to Place Cards
      */
-    public void setPlayGameState(){
+    private void setPlayGameState(){
         this.gameState = GameState.PLAYING;
         output.println("S-ADVANCE-PLAYINGSTAGE");
+    }
+
+    private void setNotStartedState(){
+        gameState = GameState.NOTSTARTED;
+        output.println("S-ADVANCE-ROUNDOVER");
     }
 
     /**
@@ -139,9 +156,7 @@ public class Player implements Runnable {
      * Informs the Player of their Game Options, i.e if they are bust or can Hit or Stand
      */
     private void sendPlayOptions(){
-        if(hand.isDoubledDown()){
 
-        }
         if(hand.hasBlackjack()) {
             output.println("S-PLAYINGSTAGE-PLAYERBJ");
             setWaitingState();
@@ -185,11 +200,10 @@ public class Player implements Runnable {
                 break;
             case "D":
                 hand.addCard(gameTable.dealCard());
-                balance -= hand.getHandBet();
                 hand.setDoubledDown();
                 sendPlayerHandState();
                 sendPlayOptions();
-                output.println(String.format("S-PLAYINGSTAGE-DD-%.2f", balance));
+                output.println(String.format("S-PLAYINGSTAGE-DD-%.2f", hand.getHandBet()));
                 setWaitingState();
                 playHandLatch.countDown();
                 break;
@@ -242,31 +256,32 @@ public class Player implements Runnable {
 
     public void processPayout(){
         if(hand.isBust()){
+            decrementBalance(hand.getHandBet());
             output.println(String.format("S-PAYOUTSTAGE-LOSE-%.2f-%.2f", balance, hand.getHandBet()));
             return;
         }
 
         if(hand.handValue() == getDealersHand().handValue()){
-            balance += hand.getHandBet();
             output.println(String.format("S-PAYOUTSTAGE-PUSH-%.2f", balance));
             return;
         }
 
         if(hand.hasBlackjack()){
             double payout = 1.5 * hand.getHandBet();
-            balance += (payout + hand.getHandBet());
+            incrementBalance(hand.getHandBet());
             output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
             return;
         }
 
         if(hand.handValue() > getDealersHand().handValue() || getDealersHand().isBust()){
             double payout = hand.getHandBet();
-            balance += (payout + hand.getHandBet());
+            incrementBalance(hand.getHandBet());
             output.println(String.format("S-PAYOUTSTAGE-WIN-%.2f-%.2f", balance, payout));
             return;
         }
 
         if(hand.handValue() < getDealersHand().handValue()){
+            decrementBalance(hand.getHandBet());
             output.println(String.format("S-PAYOUTSTAGE-LOSE-%.2f-%.2f", balance, hand.getHandBet()));
         }
     }
@@ -280,18 +295,9 @@ public class Player implements Runnable {
     }
 
     /**
-     * Sets the Game State for the Player to Wait for Next Game
-     */
-    public void setNotStartedState(){
-        this.gameState = GameState.NOTSTARTED;
-        output.println("S-ADVANCE-NOTSTARTED");
-    }
-
-    /**
      * Sets the Game State fot the client to be game over and closes the connection with them
      */
     public void setGameOverState(){
-        isDone = true;
         gameState = GameState.GAMEOVER;
         output.println("S-GAMEOVER");
         try{
@@ -307,8 +313,9 @@ public class Player implements Runnable {
      * Resets the State of the Player, Resetting all Latches and Game State
      */
     public void resetPlayer(){
-        gameState = GameState.WAITINGOTHERS;
         playHandLatch = new CountDownLatch(1);
+        stillPlayingLatch = new CountDownLatch(1);
+        hand.clear();
     }
 
     /**
@@ -367,6 +374,27 @@ public class Player implements Runnable {
 
     public BJHand getDealersHand(){
         return gameTable.getDealersHand();
+    }
+
+    public boolean isStillEligible(){
+        return balance >= gameTable.getMinimumBet();
+    }
+
+    public boolean isNotStillElligible(){
+        return !isStillEligible();
+    }
+
+    public void setPlayAgainState(){
+        gameState = GameState.PLAYAGAIN;
+        output.println("S-ADVANCE-PLAYAGAIN");
+    }
+
+    public void informLowBalance(){
+        output.println("S-LOWBALANCE");
+    }
+
+    public boolean hasChosenToQuit(){
+        return isDone;
     }
 }
 

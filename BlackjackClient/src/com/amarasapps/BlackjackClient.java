@@ -129,9 +129,18 @@ public class BlackjackClient {
                             setPlayGameState();
                             break;
                         case "ROUNDOVER":
+                            setNotStartedState();
+                            break;
                         case "WAITINGOTHERS":
                             setWaitingState();
                             break;
+                        case "PLAYAGAIN":
+                            synchronized (inputThread){
+                                inputThread.notify();
+                            }
+                            setPlayAgainState();
+                            break;
+
                     }
                     break;
                 case "PLAYERHAND": {
@@ -207,6 +216,10 @@ public class BlackjackClient {
                             System.out.println(String.format("New Balance: %.2f", availBalance));
                             break;
                     }
+                    break;
+                case "LOWBALANCE":
+                    System.out.println("Your Balance is Less than the Table Minimum Bet.");
+                    break;
                 case "GAMEOVER":
                     setGameOverState();
                     break;
@@ -254,6 +267,15 @@ public class BlackjackClient {
                         break;
                 }
                 break;
+            case PLAYAGAIN:
+                if(!message.equals("Y") && !message.equals("N")){
+                    System.out.println("Invalid Choice!");
+                    System.out.print("Would you like to Play Again (Y/N): ");
+                }else{
+                    output.println("C-PLAYAGAIN-" + message);
+                    inputThreadSleep();
+                }
+                break;
             case WAITINGOTHERS:
                 break;
             case NOTSTARTED:
@@ -268,7 +290,7 @@ public class BlackjackClient {
     private void handleBetStage(){
         this.gameState = GameState.WAITINGBET;
         System.out.println("+--------------------+");
-        System.out.println("It is your Turn to place a Bet");
+        System.out.println("New Round - It is your Turn to place a Bet");
         System.out.println(String.format("Available Balance: %.2f", availBalance));
         System.out.print(String.format("Enter Your Bet (Min: %.2f): ", tableMinBet));
     }
@@ -295,8 +317,15 @@ public class BlackjackClient {
      * Sets the Game State for the Player to Wait for Next Game
      */
     private void setNotStartedState(){
+        System.out.println("+--------------------+");
         System.out.println("Currently Waiting for Other Players before Moving onto Next Round.");
         this.gameState = GameState.NOTSTARTED;
+    }
+
+    private void setPlayAgainState(){
+        System.out.println("+--------------------+");
+        System.out.print("Would you like to Play Again (Y/N): ");
+        gameState = GameState.PLAYAGAIN;
     }
 
     /**
