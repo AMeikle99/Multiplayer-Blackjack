@@ -25,6 +25,7 @@ public class Table implements Runnable {
 
     private CountDownLatch betsPlacedLatch;      //Count of Players Who've Place their Bets
     private CountDownLatch playAgainLatch;      //Count of Players who are being asked to play again
+    private CountDownLatch insuranceBetLatch;   //Count of Players who have responded to the offer of an Insurance Bet
 
 
     /**
@@ -70,19 +71,43 @@ public class Table implements Runnable {
             e.printStackTrace();
         }
         dealInitialCards();
-
-        for(Player player: players){
+        if(getDealerUpCard().isAce()){
+            handleInsuranceBets();
+            informInsuranceOutcome();
+            if(dealersHand.hasBlackjack()){
+                resetTable();
+                return;
+            }
+        }
+        for (Player player : players) {
             player.setPlayGameState();
             player.handlePlayStage();
-            try{
+            try {
                 player.waitPlayHandLatch();
-            }catch(InterruptedException e){
+            } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
         dealersTurn();
         resetTable();
     }
+
+    private void handleInsuranceBets(){
+        for(Player player: players){
+            player.handlePlayStage();
+        }
+        insuranceBetLatch = new CountDownLatch(playerCount());
+        try{
+            insuranceBetLatch.await();
+        }catch(InterruptedException ignored){}
+    }
+
+    private void informInsuranceOutcome(){
+        for(Player player: players){
+            player.informInsuranceOutcome();
+        }
+    }
+
 
     /**
      * Resets the State of the Table for a new Game
@@ -186,6 +211,10 @@ public class Table implements Runnable {
 
     public void countDownPlayAgainLatch(){
         playAgainLatch.countDown();
+    }
+
+    public void countDownInsuranceBetLatch(){
+        insuranceBetLatch.countDown();
     }
 
     /**

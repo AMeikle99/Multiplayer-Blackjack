@@ -16,12 +16,17 @@ public class BJHand {
     private boolean hasFullValueAce;  //Tracks if the hand has a full value Ace
     private double handBet;                //The amount that a player has bet on this hand
     private boolean isDoubledDown;          //Tracks if the player has doubled down on this hand
+    private boolean hasInsurance;
 
     /**
      * Constructor to initialise an empty playing hand
      */
     public BJHand(){
         cards = new ArrayList<>();
+        hasFullValueAce = false;
+        handBet = 0;
+        isDoubledDown = false;
+        hasInsurance = false;
     }
 
     /**
@@ -160,6 +165,11 @@ public class BJHand {
     public void clear(){
         hasFullValueAce = false;
         isDoubledDown = false;
+        hasInsurance = false;
         cards.clear();
+    }
+
+    public void setHasInsurance(){
+        hasInsurance = true;
     }
 }

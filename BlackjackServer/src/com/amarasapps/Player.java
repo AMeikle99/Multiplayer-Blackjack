@@ -33,6 +33,9 @@ public class Player implements Runnable {
 
     private boolean isDone = false; //Tracks the State of the Player
     private GameState gameState;    //Tacks the Position in the Game
+    private boolean askedForInsurance = false;   //Tracks whether the Insurance Stage has completed
+    private boolean tookInsurance = false;      //Tracks if the player took insurance or not
+    private double insuranceAmount = 0.0;       //The amount the insurance bet is worth
 
     private CountDownLatch playHandLatch;   //Latch to make the table wait until the player has had their turn
     private CountDownLatch stillPlayingLatch; //Latch to make sure the table wait until the player has decided if they wish to keep playing
@@ -113,6 +116,13 @@ public class Player implements Runnable {
                 System.out.println("Play: " + messageBits[2]);
                 handlePlayChoice(messageBits[2]);
                 break;
+            case "INSURANCE":
+                if(messageBits[2].equals("Y")){
+                    tookInsurance = true;
+                }
+                setWaitingState();
+                gameTable.countDownInsuranceBetLatch();
+                break;
             case "PLAYAGAIN":
                 System.out.println("Play Again: " + messageBits[2]);
                 if(messageBits[2].equals("N")){
@@ -164,8 +174,15 @@ public class Player implements Runnable {
      * Informs the Player of their Game Options, i.e if they are bust or can Hit or Stand
      */
     private void sendPlayOptions(){
-
-        if(currentHand.hasBlackjack()) {
+        if(gameTable.getDealerUpCard().isAce() && !askedForInsurance){
+            if(canOfferInsurance()){
+                askedForInsurance = true;
+                gameState = GameState.OFFERINSURANCE;
+                output.println("S-PLAYINGSTAGE-OFFERINSURANCE");
+            }else{
+                output.println("S-PLAYINGSTAGE-TOOPOORINSURANCE");   //The player doesn't have enough momney to take insurance
+            }
+        }else if(currentHand.hasBlackjack()) {
             output.println("S-PLAYINGSTAGE-PLAYERBJ");
             if(gameTable.playerCount() > 1)
                 setWaitingState();
@@ -241,7 +258,7 @@ public class Player implements Runnable {
     /**
      * Sends the client what cards are in both their hand and the dealers hand
      */
-    private void sendInitialTableState(){
+    public void sendInitialTableState(){
         String dealerHandState = String.format("S-DEALERHAND-%d-%s-XX", gameTable.getDealerVisibleValue(), gameTable.getDealerUpCard());
         output.println(dealerHandState);
         sendPlayerHandState(currentHand);
@@ -323,13 +340,45 @@ public class Player implements Runnable {
             }
         }
 
+        totalPayout -= insuranceAmount;
+
         if(totalPayout < 0){
             output.println(String.format("S-PAYOUTSTAGE-ROUNDLOSE-%.2f-%.2f",balance, -1*totalPayout));
         }else{
             output.println(String.format("S-PAYOUTSTAGE-ROUNDWIN-%.2f-%.2f",balance, totalPayout));
         }
+    }
 
+    public void informInsuranceOutcome(){
+        if(gameTable.getDealersHand().hasBlackjack()){
+            sendDealerHandState();
+            output.println("S-INSURANCE-DEALERBJ");
+            if(tookInsurance){
+                output.println("S-INSURANCE-WININSURANCE");
+                output.println(String.format("S-PAYOUTSTAGE-ROUNDWIN-%.2f-%.2f",balance,0));
+            }else {
+                if (askedForInsurance) {
+                    output.println("S-INSURANCE-BJNOPAYOUT");
+                }
+                balance -= currentHand.getHandBet();
+                output.println(String.format("S-PAYOUTSTAGE-ROUNDLOSE-%.2f-%.2f", balance, currentHand.getHandBet()));
+            }
+        }else{
+            output.println("S-INSURANCE-NODEALERBJ");
+            if(tookInsurance){
+                balance -= 0.5 * currentHand.getHandBet();
+                insuranceAmount = 0.5*currentHand.getHandBet();
+                output.println(String.format("S-INSURANCE-LOSEINSURANCE-%.2f", insuranceAmount));
+            }else{
+                if(askedForInsurance){
+                    output.println("S-INSURANCE-NOBJNOPAYOUT");
+                }
+            }
+        }
 
+        if(gameTable.playerCount() > 1 && !gameTable.isLastPlayer(this)){
+            setWaitingState();
+        }
     }
 
     /**
@@ -362,6 +411,9 @@ public class Player implements Runnable {
     public void resetPlayer(){
         playHandLatch = new CountDownLatch(1);
         stillPlayingLatch = new CountDownLatch(1);
+        askedForInsurance = false;
+        tookInsurance = false;
+        insuranceAmount = 0.0;
         hands.clear();
         currentHand = new BJHand();
         hands.add(currentHand);
@@ -462,6 +514,14 @@ public class Player implements Runnable {
         currentHand.addCard(gameTable.dealCard());
         newHand.addCard(gameTable.dealCard());
         hands.add(hands.indexOf(currentHand)+1, newHand);
+    }
+
+    public boolean hasInsuranceBet(){
+        return askedForInsurance;
+    }
+
+    public boolean canOfferInsurance(){
+        return balance >= 1.5 * currentHand.getHandBet();
     }
 }
 

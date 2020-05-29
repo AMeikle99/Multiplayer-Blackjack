@@ -24,6 +24,10 @@ public class Card {
         this.suit = suit;
     }
 
+    public boolean isAce(){
+        return rank == Rank.ACE;
+    }
+
     /**
      * Returns the Numeric Value of the card
      *

@@ -162,8 +162,46 @@ public class BlackjackClient {
                 case "PLAYERBALANCE":
                     availBalance = Double.parseDouble(messageBits[2]);
                     System.out.println(String.format("Available Balance: %.2f", availBalance));
+                case "INSURANCE":
+                    switch(messageBits[2]){
+                        case "DEALERBJ":
+                            System.out.println("The Dealer has a BlackJack");
+                            break;
+                        case "NODEALERBJ":
+                            System.out.println("The Dealer did not have a BlackJack");
+                            break;
+                        case "WININSURANCE":
+                            System.out.println("Your Insurance has covered your bet. No Money won or Lost");
+                            break;
+                        case "LOSEINSURANCE":
+                            double insuranceAmount = Double.parseDouble(messageBits[3]);
+                            System.out.println(String.format("You have lost your insurance bet of %.2f", insuranceAmount));
+                            break;
+                        case "BJNOPAYOUT":
+                            System.out.println("Looks like you should have taken the Insurance you Bampot!");
+                            break;
+                        case "NOBJNOPAYOUT":
+                            System.out.println("Can you see the future? Good call not taking Insurance you Legend!");
+                            break;
+                    }
                 case "PLAYINGSTAGE":
                     switch (messageBits[2]){
+                        case "OFFERINSURANCE":
+                            gameState = GameState.OFFERINSURANCE;
+                            synchronized (inputThread){
+                                inputThread.notify();
+                            }
+                            System.out.println("The Dealer Has an Ace Showing!");
+                            System.out.print("Do you want to buy insurance (Y/N): ");
+                            break;
+                        case "TOOPOORINSURANCE":
+                            synchronized (inputThread){
+                                inputThread.notify();
+                            }
+                            System.out.println("The Dealer Has an Ace Showing!");
+                            System.out.println("Sadly you don't have enough money to buy insurance.");
+                            System.out.println("Good Luck!");
+                            break;
                         case "PLAYERBJ":
                             System.out.println("You Have BlackJack! Well Done!");
                             try{
@@ -301,6 +339,15 @@ public class BlackjackClient {
                     case "HITSTANDDOUBLESPLIT":
                         validatePlayChoice("H-S-D-SP", message);
                         break;
+                }
+                break;
+            case OFFERINSURANCE:
+                if(!message.equals("Y") && !message.equals("N")){
+                    System.out.println("Invalid Choice!");
+                    System.out.print("Would you like to buy insurance (Y/N): ");
+                }else{
+                    output.println("C-INSURANCE-" + message);
+                    inputThreadSleep();
                 }
                 break;
             case PLAYAGAIN:
