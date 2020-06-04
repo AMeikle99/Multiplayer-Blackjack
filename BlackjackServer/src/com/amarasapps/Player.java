@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.net.SocketAddress;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -24,7 +26,7 @@ public class Player implements Runnable {
 
     private BufferedReader input;   //Input Stream from Player
     private PrintWriter output;     //Output Stream to Player
-    private Socket clientSocket;    //Socket COnnecting to Client
+    private Socket clientSocket;    //Socket Connecting to Client
 
     private ArrayList<BJHand> hands;        //The Players Hand
     private BJHand currentHand;             //The current Players Hand
@@ -71,21 +73,39 @@ public class Player implements Runnable {
      */
     @Override
     public void run() {
-        boolean inputEntered = true;
         gameState = GameState.NOTSTARTED;
         System.out.println("Running New Player");
         do{
             try {
 
-                if(gameState != GameState.WAITINGOTHERS && gameState != GameState.NOTSTARTED){
+                if (gameState != GameState.WAITINGOTHERS && gameState != GameState.NOTSTARTED) {
                     String clientMessage = input.readLine();
-                    handleClientMessage(clientMessage);
-                }else{
+                    if (clientMessage == null) {
+                        System.out.println("Player Disconnected.");
+                        switch (gameState) {
+                            case WAITINGBET:
+                                gameTable.countDownBetLatch();
+                            case PLAYING:
+                                playHandLatch.countDown();
+                                break;
+                            case PLAYAGAIN:
+                                gameTable.countDownPlayAgainLatch();
+                                break;
+                            case OFFERINSURANCE:
+                                gameTable.countDownInsuranceBetLatch();
+                                break;
+                        }
+                        isDone = true;
+                        synchronized (this){
+                            this.wait();
+                        }
+                    } else {
+                        handleClientMessage(clientMessage);
+                    }
+                } else {
                     Thread.sleep(500);
                 }
 
-            }catch (SocketTimeoutException e){
-                inputEntered = false;
             }catch(InterruptedException | IOException ignored){}
         }while(isStillEligible() && !hasChosenToQuit());
         System.out.println("Exiting Player Thread");
@@ -133,34 +153,58 @@ public class Player implements Runnable {
                         setNotStartedState();
                     }
                 }
-
                 gameTable.countDownPlayAgainLatch();
             default:
                 break;
         }
     }
 
+    //**Insurance Stage**//
+
     /**
-     * Sets the Game State for the Player to Collect its Bet
+     * Checks if the player is able to take insurance
+     * @return True if the player has enough money to take insurance
      */
-    public void setGetBetState(){
-        System.out.println("Set Bet State");
-        this.gameState = GameState.WAITINGBET;
-        output.println(String.format("S-ADVANCE-BETTINGSTAGE-%.2f-%.2f", gameTable.getMinimumBet(), getBalance()));
+    private boolean canOfferInsurance(){
+        return balance >= 1.5 * currentHand.getHandBet();
     }
 
     /**
-     * Sets the Game State for the Player to Place Cards
+     * Informs the player on the result of placing the Insurance Bet
      */
-    public void setPlayGameState(){
-        this.gameState = GameState.PLAYING;
-        output.println("S-ADVANCE-PLAYINGSTAGE");
+    public void informInsuranceOutcome(){
+        if(gameTable.getDealersHand().hasBlackjack()){
+            sendDealerHandState();
+            output.println("S-INSURANCE-DEALERBJ");
+            if(tookInsurance){
+                output.println("S-INSURANCE-WININSURANCE");
+                output.println(String.format("S-PAYOUTSTAGE-ROUNDWIN-%.2f-%.2f",balance,0));
+            }else {
+                if (askedForInsurance) {
+                    output.println("S-INSURANCE-BJNOPAYOUT");
+                }
+                balance -= currentHand.getHandBet();
+                output.println(String.format("S-PAYOUTSTAGE-ROUNDLOSE-%.2f-%.2f", balance, currentHand.getHandBet()));
+            }
+        }else{
+            output.println("S-INSURANCE-NODEALERBJ");
+            if(tookInsurance){
+                balance -= 0.5 * currentHand.getHandBet();
+                insuranceAmount = 0.5*currentHand.getHandBet();
+                output.println(String.format("S-INSURANCE-LOSEINSURANCE-%.2f", insuranceAmount));
+            }else{
+                if(askedForInsurance){
+                    output.println("S-INSURANCE-NOBJNOPAYOUT");
+                }
+            }
+        }
+
+        if(gameTable.playerCount() > 1 && gameTable.isNotLastPlayer(this)){
+            setWaitingState();
+        }
     }
 
-    private void setNotStartedState(){
-        gameState = GameState.NOTSTARTED;
-        output.println("S-ADVANCE-ROUNDOVER");
-    }
+    //** Play Game Stage**//
 
     /**
      * Sends the Client The State of the Game so as to begin the Play Stage
@@ -226,7 +270,7 @@ public class Player implements Runnable {
                     currentHand = getNextHand();
                     handlePlayStage();
                 }else{
-                    if (gameTable.playerCount() > 1 && !gameTable.isLastPlayer(this)) {
+                    if (gameTable.playerCount() > 1 && gameTable.isNotLastPlayer(this)) {
                         setWaitingState();
                     }
                     playHandLatch.countDown();
@@ -241,7 +285,7 @@ public class Player implements Runnable {
                     currentHand = getNextHand();
                     handlePlayStage();
                 }else{
-                    if (gameTable.playerCount() > 1 && !gameTable.isLastPlayer(this)) {
+                    if (gameTable.playerCount() > 1 && gameTable.isNotLastPlayer(this)) {
                         setWaitingState();
                     }
                     playHandLatch.countDown();
@@ -254,6 +298,28 @@ public class Player implements Runnable {
                 sendPlayOptions();
         }
     }
+
+    /**
+     * Splits the current hand into 2, one card for each and then deal each a new second card
+     */
+    private void splitHand(){
+        BJHand newHand = new BJHand();
+        newHand.addCard(currentHand.removeCard(1));
+        newHand.setHandBet(currentHand.getHandBet());
+
+        currentHand.addCard(gameTable.dealCard());
+        newHand.addCard(gameTable.dealCard());
+        hands.add(hands.indexOf(currentHand)+1, newHand);
+    }
+
+    /**
+     * Forces the Table to Wait until the Playing State is Finished
+     */
+    public void waitPlayHandLatch() throws InterruptedException {
+        playHandLatch.await();
+    }
+
+    //**Send Game Info**//
 
     /**
      * Sends the client what cards are in both their hand and the dealers hand
@@ -299,6 +365,12 @@ public class Player implements Runnable {
         }
     }
 
+    //**Round End Stage**//
+
+    /**
+     * For each hand the player has, calculate if it beats the dealer or has busted
+     * Process the payout according to the success or failure of the hand
+     */
     public void processPayout(){
 
         double totalPayout = 0;
@@ -348,61 +420,11 @@ public class Player implements Runnable {
             output.println(String.format("S-PAYOUTSTAGE-ROUNDWIN-%.2f-%.2f",balance, totalPayout));
         }
     }
-
-    public void informInsuranceOutcome(){
-        if(gameTable.getDealersHand().hasBlackjack()){
-            sendDealerHandState();
-            output.println("S-INSURANCE-DEALERBJ");
-            if(tookInsurance){
-                output.println("S-INSURANCE-WININSURANCE");
-                output.println(String.format("S-PAYOUTSTAGE-ROUNDWIN-%.2f-%.2f",balance,0));
-            }else {
-                if (askedForInsurance) {
-                    output.println("S-INSURANCE-BJNOPAYOUT");
-                }
-                balance -= currentHand.getHandBet();
-                output.println(String.format("S-PAYOUTSTAGE-ROUNDLOSE-%.2f-%.2f", balance, currentHand.getHandBet()));
-            }
-        }else{
-            output.println("S-INSURANCE-NODEALERBJ");
-            if(tookInsurance){
-                balance -= 0.5 * currentHand.getHandBet();
-                insuranceAmount = 0.5*currentHand.getHandBet();
-                output.println(String.format("S-INSURANCE-LOSEINSURANCE-%.2f", insuranceAmount));
-            }else{
-                if(askedForInsurance){
-                    output.println("S-INSURANCE-NOBJNOPAYOUT");
-                }
-            }
-        }
-
-        if(gameTable.playerCount() > 1 && !gameTable.isLastPlayer(this)){
-            setWaitingState();
-        }
-    }
-
     /**
-     * Sets the Game State for the Player to Wait for Others
+     * Informs the Player they don't have enough money to play again
      */
-    private void setWaitingState() {
-        this.gameState = GameState.WAITINGOTHERS;
-        output.println("S-ADVANCE-WAITINGOTHERS");
-
-    }
-
-    /**
-     * Sets the Game State fot the client to be game over and closes the connection with them
-     */
-    public void setGameOverState(){
-        gameState = GameState.GAMEOVER;
-        output.println("S-GAMEOVER");
-        try{
-            input.close();
-            output.close();
-            clientSocket.close();
-        }catch(IOException ignored){}
-
-
+    public void informLowBalance(){
+        output.println("S-LOWBALANCE");
     }
 
     /**
@@ -419,12 +441,130 @@ public class Player implements Runnable {
         hands.add(currentHand);
     }
 
+    //**Set Game State**//
+
     /**
-     * Forces the Table to Wait until the Playing State is Finished
+     * Sets the Game State for the Player to wait until the next round begins
      */
-    public void waitPlayHandLatch() throws InterruptedException {
-        playHandLatch.await();
+    private void setNotStartedState(){
+        gameState = GameState.NOTSTARTED;
+        output.println("S-ADVANCE-ROUNDOVER");
     }
+
+    /**
+     * Sets the Game State for the Player to Wait for Others
+     */
+    private void setWaitingState() {
+        this.gameState = GameState.WAITINGOTHERS;
+        output.println("S-ADVANCE-WAITINGOTHERS");
+
+    }
+
+    /**
+     * Sets the Game State for the Player to Collect its Bet
+     */
+    public void setGetBetState(){
+        System.out.println("Set Bet State");
+        this.gameState = GameState.WAITINGBET;
+        output.println(String.format("S-ADVANCE-BETTINGSTAGE-%.2f-%.2f", gameTable.getMinimumBet(), getBalance()));
+    }
+
+    /**
+     * Sets the Game State for the Player to Place Cards
+     */
+    public void setPlayGameState(){
+        this.gameState = GameState.PLAYING;
+        output.println("S-ADVANCE-PLAYINGSTAGE");
+    }
+
+    /**
+     * Sets the Game State fot the client to ask if they wish to play again
+     */
+    public void setPlayAgainState(){
+        gameState = GameState.PLAYAGAIN;
+        output.println("S-ADVANCE-PLAYAGAIN");
+    }
+
+    /**
+     * Sets the Game State fot the client to be game over and closes the connection with them
+     */
+    public void setGameOverState(){
+        gameState = GameState.GAMEOVER;
+        output.println("S-GAMEOVER");
+        try{
+            input.close();
+            output.close();
+            clientSocket.close();
+        }catch(IOException ignored){}
+    }
+
+    //**Getters**//
+
+    /**
+     * Returns the balance available to the player
+     * @return  The player's available balance
+     */
+    public double getBalance() {
+        return balance;
+    }
+
+    /**
+     * Returns the current hand the player has
+     * @return The Hand the player has
+     */
+    public BJHand getCurrentHand() {
+        return currentHand;
+    }
+
+    /**
+     * Get the Dealers Hand from the Game Table
+     * @return The Hand representing the Dealer
+     */
+    public BJHand getDealersHand(){
+        return gameTable.getDealersHand();
+    }
+
+    /**
+     * Gets the next hand for the player
+     * @return The next hand the player can play through
+     */
+    private BJHand getNextHand(){
+        return hands.get(hands.indexOf(currentHand)+1);
+    }
+
+    /**
+     * Checks if the player still has more hands to play
+     * @return  Whether the player still has more hands to play through
+     */
+    private boolean isNotFinalHand(){
+        return hands.indexOf(currentHand) < hands.size()-1;
+    }
+
+    /**
+     * Checks if this player is eligible to play another round
+     * @return Whether the player can play again
+     */
+    public boolean isStillEligible(){
+        return balance >= gameTable.getMinimumBet() && gameState != GameState.GAMEOVER && !isDone;
+    }
+
+    /**
+     * Checks if this player is not eligible to play another round
+     * @return Whether the player can't play again
+     */
+    public boolean isNotStillElligible(){
+        return !isStillEligible();
+    }
+
+    /**
+     * Returns whether the player chose to exit the game
+     * @return True if the player chose to exit, false otherwise
+     */
+    public boolean hasChosenToQuit(){
+        return isDone;
+    }
+
+    //**Setters**//
 
     /**
      * Sets the Bet that the User has Placed
@@ -455,73 +595,6 @@ public class Player implements Runnable {
         }
 
         this.balance -= changeAmount;
-    }
-
-    /**
-     * Returns the balance available to the player
-     * @return  The player's available balance
-     */
-    public double getBalance() {
-        return balance;
-    }
-
-    /**
-     * Returns the current hand the player has
-     * @return The Hand the player has
-     */
-    public BJHand getCurrentHand() {
-        return currentHand;
-    }
-
-    public BJHand getDealersHand(){
-        return gameTable.getDealersHand();
-    }
-
-    public boolean isStillEligible(){
-        return balance >= gameTable.getMinimumBet();
-    }
-
-    public boolean isNotStillElligible(){
-        return !isStillEligible();
-    }
-
-    public void setPlayAgainState(){
-        gameState = GameState.PLAYAGAIN;
-        output.println("S-ADVANCE-PLAYAGAIN");
-    }
-
-    public void informLowBalance(){
-        output.println("S-LOWBALANCE");
-    }
-
-    public boolean hasChosenToQuit(){
-        return isDone;
-    }
-
-    private boolean isNotFinalHand(){
-        return hands.indexOf(currentHand) < hands.size()-1;
-    }
-
-    private BJHand getNextHand(){
-        return hands.get(hands.indexOf(currentHand)+1);
-    }
-
-    private void splitHand(){
-        BJHand newHand = new BJHand();
-        newHand.addCard(currentHand.removeCard(1));
-        newHand.setHandBet(currentHand.getHandBet());
-
-        currentHand.addCard(gameTable.dealCard());
-        newHand.addCard(gameTable.dealCard());
-        hands.add(hands.indexOf(currentHand)+1, newHand);
-    }
-
-    public boolean hasInsuranceBet(){
-        return askedForInsurance;
-    }
-
-    public boolean canOfferInsurance(){
-        return balance >= 1.5 * currentHand.getHandBet();
     }
 }
 

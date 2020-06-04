@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.ConnectException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.Arrays;
@@ -42,10 +43,42 @@ public class BlackjackClient {
      * Main Method which creates a new Client object and begins the connection/initialization process
      */
     public static void main(String[] args) {
-        BlackjackClient client = new BlackjackClient(DEFAULT_SERVER_PORT, DEFAULT_SERVER_ADDRESS);
+        if((args.length%2) != 0){
+            expectedUsage();
+        }
+        int port = DEFAULT_SERVER_PORT;
+        String address = DEFAULT_SERVER_ADDRESS;
+
+        for(int i=0; i<args.length; i+=2){
+            try{
+                switch(args[i]){
+                    case "--PORT":
+                        port = Integer.parseInt(args[i+1]);
+                        if(port <= 0) throw new NumberFormatException();
+                        break;
+                    case "--ADDRESS":
+                        if(!args[i+1].matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")){
+                            throw new NumberFormatException();
+                        }
+                        address = args[i+1];
+                }
+            }catch (NumberFormatException e){
+                expectedUsage();
+            }
+        }
+        BlackjackClient client = new BlackjackClient(port, address);
         client.beginGame();
     }
 
+    /**
+     * If there is an error with passed in arguments this prints out the expected format of running the program
+     */
+    private static void expectedUsage() {
+        System.out.println("Usage: java -jar BlackjackClient.jar [OPTIONS]");
+        System.out.println("Options:");
+        System.out.println("\t--PORT <PORT NUMBER>\n\t--ADDRESS <SERVER ADDRESS>");
+        System.exit(-1);
+    }
 
     /**
      * Constructor to Initialise the Blackjack Client
@@ -61,10 +94,10 @@ public class BlackjackClient {
     /**
      * Begin the Blackjack Game, Connect to Server and Manage Flow
      */
-    public void beginGame(){
+    private void beginGame(){
         try{
             System.out.println("Connecting to Server...");
-            this.serverSocket = new Socket(DEFAULT_SERVER_ADDRESS, DEFAULT_SERVER_PORT);
+            this.serverSocket = new Socket(this.serverAddress, this.serverPort);
             this.serverSocket.setSoTimeout(500);
             InputStreamReader isr = new InputStreamReader(serverSocket.getInputStream());
             this.input = new BufferedReader(isr);
@@ -79,7 +112,16 @@ public class BlackjackClient {
             do{
                 try{
                     String message = input.readLine();
-                    handleServerMessage(message);
+                    if(message == null){
+                        setGameOverState();
+                        input.close();
+                        output.close();
+                        serverSocket.close();
+                        System.out.println("Server Disconnected");
+                        System.exit(-1);
+                    }else {
+                        handleServerMessage(message);
+                    }
                 }catch(SocketTimeoutException ignored){}
 
             }while(gameState != GameState.GAMEOVER);
@@ -90,6 +132,8 @@ public class BlackjackClient {
                 }
                 inputThread.join();
             }catch (InterruptedException ignored){}
+            input.close();
+            output.close();
             serverSocket.close();
             terminalIn.close();
             System.out.println("+--------------------+");
@@ -97,6 +141,9 @@ public class BlackjackClient {
             System.out.println("Exiting...");
             System.out.println("+--------------------+");
 
+        }catch (ConnectException e){
+            System.out.println("Error Connecting to the Server. Please check the server details and try again.");
+            System.exit(-1);
         }catch (IOException e){
             e.printStackTrace();
             System.exit(-1);
@@ -512,7 +559,11 @@ public class BlackjackClient {
 
             while(gameState != GameState.GAMEOVER){
                 String message = terminalIn.nextLine();
-                handleMessage(message);
+                if(message == null){
+                    setGameOverState();
+                }else {
+                    handleMessage(message);
+                }
             }
         }
     }

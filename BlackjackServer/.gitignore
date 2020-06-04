@@ -1,3 +1,6 @@
 .idea/*
 out/*
 *.iml
+build/*
+*.jar
+*.sh

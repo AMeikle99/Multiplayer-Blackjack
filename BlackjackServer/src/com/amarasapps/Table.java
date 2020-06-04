@@ -70,6 +70,7 @@ public class Table implements Runnable {
         }catch(InterruptedException e){
             e.printStackTrace();
         }
+        System.out.println("Dealing Cards");
         dealInitialCards();
         if(getDealerUpCard().isAce()){
             handleInsuranceBets();
@@ -92,6 +93,9 @@ public class Table implements Runnable {
         resetTable();
     }
 
+    /**
+     * For each player, ask them to place an insurance bet
+     */
     private void handleInsuranceBets(){
         for(Player player: players){
             player.handlePlayStage();
@@ -102,12 +106,14 @@ public class Table implements Runnable {
         }catch(InterruptedException ignored){}
     }
 
+    /**
+     * Tell each player the outcome of the Insurance, payout or not
+     */
     private void informInsuranceOutcome(){
         for(Player player: players){
             player.informInsuranceOutcome();
         }
     }
-
 
     /**
      * Resets the State of the Table for a new Game
@@ -117,7 +123,6 @@ public class Table implements Runnable {
         if(cardShoe.cardsLeft() <= cardsBeforeShuffle){
             this.cardShoe = new CardShoe(decksUsed);
         }
-        //TODO: Check all players are still connected
 
         ArrayList<Player> inelligiblePlayers = getInelligiblePlayers();
         ArrayList<Player> elligiblePlayers = getElligiblePlayers();
@@ -144,7 +149,6 @@ public class Table implements Runnable {
 
         }
 
-        System.out.printf("Inelligible Count Now: %d\n", inelligiblePlayers.size());
         for(Player player: inelligiblePlayers){
             removePlayer(player);
         }
@@ -190,8 +194,94 @@ public class Table implements Runnable {
      * Remove the Specified Player from the Playing Table
      * @param player    The player to be removed from the Table
      */
-    public void removePlayer(Player player){
+    private void removePlayer(Player player){
         players.remove(player);
+    }
+
+    //**Latch Countdown**//
+
+    /**
+     * Decrements the Bet Latch by 1
+     */
+    public void countDownBetLatch(){
+        betsPlacedLatch.countDown();
+    }
+
+    /**
+     * Decrements the Play Again Latch by 1
+     */
+    public void countDownPlayAgainLatch(){
+        playAgainLatch.countDown();
+    }
+
+    /**
+     * Decrements the Insurance Bet Latch by 1
+     */
+    public void countDownInsuranceBetLatch(){
+        insuranceBetLatch.countDown();
+    }
+
+    //**Getters**//
+
+    /**
+     * Gets all the hand which represents the dealer
+     * @return The hand that represents the dealer
+     */
+    public BJHand getDealersHand() {
+        return dealersHand;
+    }
+
+    /**
+     * Gets the Card from the Dealer which the Player can "see"
+     * @return The first card in the dealer's hand
+     */
+    public Card getDealerUpCard(){
+        return dealersHand.getCard(0);
+    }
+
+    /**
+     * Gets the value of the dealer's hand which is currently visible to the player
+     * @return  Value of the dealer's first card in their hand
+     */
+    public int getDealerVisibleValue(){
+        if(getDealerUpCard().getRank() == Card.Rank.ACE){
+            return getDealerUpCard().value() + 10;
+        }else{
+            return getDealerUpCard().value();
+        }
+    }
+
+    /**
+     * Mimics the action of dealing a card and removing it from the card shoe
+     * @return The next card stored in the card shoe
+     */
+    public Card dealCard(){
+        return cardShoe.dealCard();
+    }
+
+    /**
+     * Gets a list of all the player's who are still elligible for another round
+     * @return  A list of all elligible players
+     */
+    private ArrayList<Player> getElligiblePlayers(){
+        return players.stream().filter(Player::isStillEligible).collect(Collectors.toCollection(ArrayList::new));
+
+    }
+
+    /**
+     * Gets a list of all the player's who are not elligible for another round
+     * @return  A list of all inelligible players
+     */
+    private ArrayList<Player> getInelligiblePlayers(){
+        return players.stream().filter(Player::isNotStillElligible).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    /**
+     * Returns the minimum bet allowed for the Table
+     * @return minimum bet allowed to play
+     */
+    public double getMinimumBet(){
+        return  this.minimumBet;
     }
 
     /**
@@ -203,59 +293,12 @@ public class Table implements Runnable {
     }
 
     /**
-     * Decrements the Semaphore Latch by 1
+     * Checks if the player is not the last player in the list of players at the table, i.e if there are players
+     * after who would need to take their turn
+     * @param p A Player
+     * @return Whether the player is last in the list of players at the table
      */
-    public void countDownBetLatch(){
-        betsPlacedLatch.countDown();
-    }
-
-    public void countDownPlayAgainLatch(){
-        playAgainLatch.countDown();
-    }
-
-    public void countDownInsuranceBetLatch(){
-        insuranceBetLatch.countDown();
-    }
-
-    /**
-     * Returns the minimum bet allowed for the Table
-     * @return minimum bet allowed to play
-     */
-    public double getMinimumBet(){
-        return  this.minimumBet;
-    }
-
-    public Card getDealerUpCard(){
-        return dealersHand.getCard(0);
-    }
-
-    public Card dealCard(){
-        return cardShoe.dealCard();
-    }
-
-    public int getDealerVisibleValue(){
-        if(getDealerUpCard().getRank() == Card.Rank.ACE){
-            return getDealerUpCard().value() + 10;
-        }else{
-            return getDealerUpCard().value();
-        }
-
-    }
-
-    private ArrayList<Player> getElligiblePlayers(){
-        return players.stream().filter(Player::isStillEligible).collect(Collectors.toCollection(ArrayList::new));
-
-    }
-
-    private ArrayList<Player> getInelligiblePlayers(){
-        return players.stream().filter(Player::isNotStillElligible).collect(Collectors.toCollection(ArrayList::new));
-    }
-
-    public BJHand getDealersHand() {
-        return dealersHand;
-    }
-
-    public boolean isLastPlayer(Player p){
-        return players.indexOf(p) == players.size()-1;
+    public boolean isNotLastPlayer(Player p){
+        return players.indexOf(p) != players.size()-1;
     }
 }

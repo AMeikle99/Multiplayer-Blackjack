@@ -139,13 +139,6 @@ public class BJHand {
     }
 
     /**
-     * Sets the hand doubledDown to be false
-     */
-    public void clearDoubledDown(){
-        isDoubledDown = false;
-    }
-
-    /**
      * Returns whether this hand has been doubled down or not
      * @return True if the Hand has been doubled down, false otherwise
      */
@@ -153,6 +146,11 @@ public class BJHand {
         return isDoubledDown;
     }
 
+    /**
+     * Removes a card at the specified index from the hand
+     * @param i Index of card in hand array
+     * @return The card specified by index i
+     */
     public Card removeCard(int i){
         Card card = getCard(i);
         cards.remove(i);
@@ -169,7 +167,4 @@ public class BJHand {
         cards.clear();
     }
 
-    public void setHasInsurance(){
-        hasInsurance = true;
-    }
 }
