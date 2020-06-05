@@ -97,10 +97,10 @@ public class Table implements Runnable {
      * For each player, ask them to place an insurance bet
      */
     private void handleInsuranceBets(){
+        insuranceBetLatch = new CountDownLatch(playerCount());
         for(Player player: players){
             player.handlePlayStage();
         }
-        insuranceBetLatch = new CountDownLatch(playerCount());
         try{
             insuranceBetLatch.await();
         }catch(InterruptedException ignored){}

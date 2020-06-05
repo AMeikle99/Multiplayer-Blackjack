@@ -224,7 +224,8 @@ public class Player implements Runnable {
                 gameState = GameState.OFFERINSURANCE;
                 output.println("S-PLAYINGSTAGE-OFFERINSURANCE");
             }else{
-                output.println("S-PLAYINGSTAGE-TOOPOORINSURANCE");   //The player doesn't have enough momney to take insurance
+                output.println("S-PLAYINGSTAGE-TOOPOORINSURANCE");   //The player doesn't have enough money to take insurance
+                gameTable.countDownInsuranceBetLatch();
             }
         }else if(currentHand.hasBlackjack()) {
             output.println("S-PLAYINGSTAGE-PLAYERBJ");
@@ -244,10 +245,10 @@ public class Player implements Runnable {
         }else if(!currentHand.isDoubledDown()){
             StringBuilder playOption = new StringBuilder();
             playOption.append("HITSTAND");
-            if(currentHand.canDouble(balance)){
+            if(currentHand.canDouble(balance, totalHandBet())){
                 playOption.append("DOUBLE");
             }
-            if(currentHand.canSplit()){
+            if(currentHand.canSplit() && (totalHandBet() + currentHand.getHandBet() <= balance)){
                 playOption.append("SPLIT");
             }
             output.println(String.format("S-PLAYINGSTAGE-%s", playOption));
@@ -554,6 +555,20 @@ public class Player implements Runnable {
      */
     public boolean isNotStillElligible(){
         return !isStillEligible();
+    }
+
+    /**
+     * Gets the total amount bet across all hands
+     * @return The total bet amount for all the players hands
+     */
+    public double totalHandBet(){
+        double totalBet = 0;
+
+        for(BJHand hand: hands){
+            totalBet += hand.getHandBet();
+        }
+
+        return totalBet;
     }
 
     /**

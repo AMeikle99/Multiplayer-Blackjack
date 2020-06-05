@@ -98,8 +98,8 @@ public class BJHand {
      * Checks if the player is able to double down on their bet
      * @return True if the hand is eligible to Double Down
      */
-    public boolean canDouble(double playerBalance){
-        return handValue() >= 9 && handValue() <= 11 && size() == 2 && playerBalance >= 2 * handBet;
+    public boolean canDouble(double playerBalance, double totalBets){
+        return handValue() >= 9 && handValue() <= 11 && size() == 2 && playerBalance >= totalBets + handBet;
     }
 
     public boolean canSplit(){
