@@ -52,7 +52,7 @@ Below are the possible options which can be passed into the BlackjackServer.jar 
   - DECKS: 8
   
 ## Starting a Client:
-In a terminal execute the following command to start the server:
+In a terminal execute the following command to start the client:
 ```sh
 java -jar BlackjackClient.jar [Options]
 ```
